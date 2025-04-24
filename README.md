@@ -23,9 +23,6 @@ The source and reference utterance(s) are encoded into self-supervised features 
 - [Matthew Baas](https://rf5.github.io/)
 - [Shlomo Dubnov](http://dub.ucsd.edu/)
 
-
-*Equal contribution
-
 ## Quickstart
 
 ```bash
