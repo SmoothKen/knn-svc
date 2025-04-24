@@ -108,7 +108,7 @@ Parts of code for this project are adapted from the following repositories -- pl
 
 - HiFiGAN: https://github.com/jik876/hifi-gan
 - WavLM: https://github.com/microsoft/unilm/tree/master/wavlm
-
+- knn-vc: https://github.com/bshall/knn-vc
 
 ## Citation
 
