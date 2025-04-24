@@ -25,11 +25,13 @@ The source and reference utterance(s) are encoded into self-supervised features 
 
 ## Quickstart
 
+Usage:
+
 ```bash
-usage: ddsp_inference.py src_file tgt_file post_opt_0.2 mix_harm_no_amp_0.552
+ddsp_inference.py src_file tgt_file post_opt_0.2 mix_harm_no_amp_0.552
 ```
 
-I will update a helper function to clarify the argument `post_opt_0.2` and `mix_harm_no_amp_0.552`. (Some hardcoded references may also need to be updated in the scripts, please submit a issue if you spot any.)
+TODO: a helper function to clarify the argument `post_opt_0.2` and `mix_harm_no_amp_0.552`
 
 ## Checkpoints
 
