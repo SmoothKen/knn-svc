@@ -1,6 +1,6 @@
 # kNN-SVC: Robust Zero-Shot Singing Voice Conversion with Additive Synthesis and Concatenation Smoothness Optimization (kNN-SVC)
 
-(Some cleaning still ongoing, but you are welcome to submit issues or pull requests)
+(Cleaning of hardcoded stuff still ongoing, but you are welcome to submit issues or pull requests, or email me at k5shao@ucsd.edu)
 
 The official code repo! This repo contains training and inference code for the paper "kNN-SVC: Robust Zero-Shot Singing Voice Conversion with Additive Synthesis and Concatenation Smoothness Optimization". The trained checkpoints are available under the 'Releases' tab.
 
