@@ -1,41 +1,7 @@
-def write_audio(filename, waveform, sample_rate):
-	
-	# first convert as we may need it to become bytes later
-	import torch
-	if isinstance(waveform, torch.Tensor):
-		waveform = waveform.detach().cpu().numpy()
 
-	
-	import numpy as np
-	# print(waveform.shape, np.max(waveform), np.min(waveform))
-	waveform_abs_max = np.max(np.abs(waveform))
-	if waveform_abs_max > 1:
-		waveform = waveform/waveform_abs_max
-	
-	
-	# convert to int32 if it is [-1, 1] float
-	if waveform.dtype == np.float32 or waveform.dtype == np.float64:
-		waveform = waveform * (2 ** 31 - 1)   
-		waveform = waveform.astype(np.int32)
-	else:
-		assert waveform.dtype == np.int32
-		
-		
-
-	if filename.endswith(".wav"):
-		import soundfile as sf
-		sf.write(filename, waveform.T, samplerate = sample_rate, subtype = 'PCM_32')
-		
-	else:
-		from pydub import AudioSegment
-		audio_segment = AudioSegment(
-			waveform.T.tobytes(), 
-			frame_rate=sample_rate,
-			sample_width=4, 
-			channels=waveform.shape[0]
-		)
-		audio_segment.export(filename, format=filename.split(".")[-1], bitrate="320k")
-
+import sys
+sys.path.append("/home/ken/open")
+from lib_ongaku_test import save_audio
 
 import torch, torchaudio
 
@@ -47,14 +13,36 @@ if len(sys.argv) < 3:
 
 
 
-from ddsp_hubconf import knn_vc
-knn_vc = knn_vc(pretrained=True, progress=True, prematched=True, device='cuda', ckpt_type = ckpt_type)
+
 
 
 # WavLM ckpt: /home/ken/.cache/torch/hub/checkpoints/WavLM-Large.pt
 # HiFi-GAN ckpt: /home/ken/.cache/torch/hub/checkpoints/prematch_g_02500000.pt
 
 # Or, if you would like the vocoder trained not using prematched data, set prematched=False.
+
+
+
+import os
+
+# for now, args are SRC_FILE, TGT_FILE, POST_OPT_TYPE, CKPT_TYPE
+# if the first path is a file, then assume the simplest src file to ref file case
+if os.path.isfile(sys.argv[1]):
+	assert len(sys.argv) > 4
+	
+	from ddsp_hubconf import knn_vc
+	knn_vc = knn_vc(pretrained=True, progress=True, prematched=True, device='cuda', ckpt_type = sys.argv[-1])
+	# src_wav_path = sys.argv[1]
+	# ref_wav_paths = sys.argv[2:-1]
+
+	
+	src_wav_path = sys.argv[1]
+	ref_wav_path = sys.argv[2]
+
+	out_wav = knn_vc.special_match(src_wav_file = src_wav_path, ref_wav_file = ref_wav_path, topk = 4, device = "cuda", prioritize_f0 = True, ckpt_type = sys.argv[-1], tgt_loudness_db = -16, post_opt = sys.argv[-2])
+
+	import sys
+	sys.exit()
 
 
 import argparse
@@ -71,9 +59,6 @@ parser.add_argument('--tgt_folder', type=str)
 parser.add_argument('--ckpt_type', type=str)
 parser.add_argument('--post_opt', type=str)
 
-parser.add_argument("--simple", default = T
-
-
 parser.add_argument('--topk', default=4)
 parser.add_argument('--device', default="cuda")
 parser.add_argument('--prioritize_f0', default=True)
@@ -86,6 +71,8 @@ parser.add_argument('--tgt_loudness_db', default=-16)
 parser.add_argument('--required_subset_file', default=None)
 parser.add_argument('--with_dur_limit', default=False)
 args = parser.parse_args()
+
+
 
 
 
@@ -102,20 +89,9 @@ else:
 	assert arg.post_opt.startswith("post_opt") or arg.post_opt.startswith("no_post_opt")
 
 
-# if the first path is a file, then assume the simplest src file to ref file case
-if os.path.isfile(sys.argv[1]):
-	
-	# src_wav_path = sys.argv[1]
-	# ref_wav_paths = sys.argv[2:-1]
 
-	
-	src_wav_path = sys.argv[1]
-	ref_wav_path = sys.argv[2]
-
-	out_wav = knn_vc.special_match(src_wav_file = src_wav_path, ref_wav_file = ref_wav_path, topk = arg.topk, device = arg.device, prioritize_f0 = arg.prioritize_f0, ckpt_type = arg.ckpt_type, tgt_loudness_db = arg.tgt_loudness_db, post_opt = post_opt)
-
-
-
+from ddsp_hubconf import knn_vc
+knn_vc = knn_vc(pretrained=True, progress=True, prematched=True, device='cuda', ckpt_type = args.ckpt_type)
 
 if args.with_dur_limit:
 	duration_limits = ["5", "10", "30", "60", "90"]

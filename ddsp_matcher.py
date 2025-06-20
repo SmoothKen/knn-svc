@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torchaudio
 import torchaudio.transforms as T
-from hifigan.models import Generator as HiFiGAN
+# from hifigan.models import Generator as HiFiGAN
 from hifigan.utils import AttrDict
 from torch import Tensor
 from torchaudio.sox_effects import apply_effects_tensor
@@ -341,7 +341,7 @@ class KNeighborsVC(nn.Module):
 
 	def __init__(self,
 		wavlm: WavLM,
-		hifigan: HiFiGAN,
+		hifigan,
 		hifigan_cfg: AttrDict,
 		device='cuda'
 	) -> None:
@@ -1047,7 +1047,11 @@ class KNeighborsVC(nn.Module):
 		# play_sequence(audio_out_feats_weighted.reshape(-1).detach().cpu().numpy())
 		# play_sequence(pred_wav.detach().cpu().numpy())
 		
-		write_audio("/home/ken/Downloads/temp_Choral_not_used/" + src_identifier + "_to_" + ref_identifier + f"_knn_{ckpt_type}_{post_opt}.wav", pred_wav.detach().cpu().numpy(), sample_rate = 16000)
+		# write_audio("/home/ken/Downloads/temp_Choral_not_used/" + src_identifier + "_to_" + ref_identifier + f"_knn_{ckpt_type}_{post_opt}.wav", pred_wav.detach().cpu().numpy(), sample_rate = 16000)
+		from pathlib import Path
+		cache_file = str(Path(src_wav_file).parent) + "/" + src_identifier + "_to_" + ref_identifier + f"_knn_{ckpt_type}_{post_opt}.wav"
+		print("->", cache_file)
+		write_audio(cache_file, pred_wav.detach().cpu().numpy(), sample_rate = 16000)
 		
 		# write_audio("/home/ken/Downloads/temp_Choral_not_used/raw_" + src_identifier + "_to_" + ref_identifier + "_knn_converted.wav", audio_out_feats_weighted.detach().cpu().numpy(), sample_rate = 16000)
 				

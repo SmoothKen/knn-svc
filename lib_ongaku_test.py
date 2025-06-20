@@ -1,7 +1,53 @@
 
 
 
+# assume input to be (T,) or (channel, T)
+def save_audio(target_file, audio_array, sr):
+	if target_file.split(".")[-1] == "wav":
+		import soundfile as sf
+		sf.write(target_file, audio_array, sr, subtype='PCM_24')
+	else:
+		from pydub import AudioSegment
+		
+		
+		# float to int conversion
+		import numpy as np
+		if audio_array.dtype.itemsize == 8:
+			# not 32768 to avoid reaching 65536 in case of 1.0
+			audio_array = (audio_array*32767).astype(np.int16)
+
+		if audio_array.dtype.itemsize not in (1, 2, 4):
+			raise ValueError(f"Numpy Array ({audio_array.dtype.itemsize*8}) must contain 8, 16, or 32 bit values.")
+
+
+		# Determine nchannels
+		if len(audio_array.shape) == 1:
+			audio_array = audio_array[None, :]
+		assert len(audio_array.shape) == 2
+
+		from pydub import AudioSegment
+		audio_segment = AudioSegment(
+			audio_array.T.tobytes(), 
+			frame_rate=sr,
+			sample_width=audio_array.dtype.itemsize, 
+			channels=audio_array.shape[0]
+		)
+		audio_segment.export(target_file, format=target_file.split(".")[-1], bitrate="320k")
+
+
+		'''
+		# Create an array of mono audio segments
+		monos = []
+		for i in range(len(audio_array)):
+			monos.append(AudioSegment(audio_array[i, :].tobytes(), frame_rate=sr, sample_width=audio_array.dtype.itemsize, channels=1))
+
+		audio_segment = AudioSegment.from_mono_audiosegments(*monos)
+		audio_segment.export(target_file, format=target_file.split(".")[-1])
+		'''
+
+
 def fast_cosine_dist(source_feats_collection, matching_pool, increment = 20):
+	import torch
 	source_norms_collection = torch.norm(source_feats_collection, p=2, dim=-1)
 	matching_norms = torch.norm(matching_pool, p=2, dim=-1)
 	
@@ -35,7 +81,7 @@ def fast_cosine_dist(source_feats_collection, matching_pool, increment = 20):
 # retain_mask, matrix (num_src, num_tgt), 1 if want to retain
 # topk -> highest nbrs, if None, then return unsorted
 def knn_cosine_similarity(src_elements, tgt_elements, retain_mask = None, topk = 32):
-		
+	import torch
 	dists = fast_cosine_dist(src_elements.half().float(), tgt_elements.half().float())
 
 	assert dists.shape[0] == src_elements.shape[0] and dists.shape[1] == tgt_elements.shape[0]
@@ -124,6 +170,7 @@ def smoothen_f0(f0, slice_list, frame_per_second = 50):
 # TODO: Danakil Tiken conversion explodes at 35.1-35.18 ! 35.127 center, due to pitch_weight = 1, but lower it hurts stability of b_to_s
 def knn_with_concat_cost(target_feature_indices, src_elements, tgt_elements, shifted_src_f0 = None, tgt_f0 = None, concat_weight = 0.2):
 	
+	import torch
 	assert len(target_feature_indices) == len(src_elements)
 	
 	topk = target_feature_indices.shape[1]

@@ -1520,7 +1520,7 @@ def match_at_inference_time(src_wav_file, ref_wav_file, wavlm, match_weights, sy
 			
 	else:
 		
-		query_pool, _, _, query_spec_pool, query_f0_pool, _  = get_complete_spk_pool(src_wav_file, wavlm, match_weights, synth_weights, f0_dir_parent = dataset_root_dir, device = device)
+		query_pool, _, _, query_spec_pool, query_f0_pool, _  = get_complete_spk_pool(str(src_wav_file), wavlm, match_weights, synth_weights, f0_dir_parent = dataset_root_dir, device = device)
 
 
 	if tgt_dataset_path is None:
@@ -1542,14 +1542,14 @@ def match_at_inference_time(src_wav_file, ref_wav_file, wavlm, match_weights, sy
 				print("Loaded from", cache_pickle)
 		else:
 			# , vad_trigger_level = 7
-			matching_pool, synth_pool, audio_synth_pool, spec_synth_pool, f0_pool, harmonics_synth_pool = get_complete_spk_pool(ref_wav_file, wavlm, match_weights, synth_weights, f0_dir_parent = dataset_root_dir, device = device, duration_limit = duration_limit, vad_trigger_level = 7)
+			matching_pool, synth_pool, audio_synth_pool, spec_synth_pool, f0_pool, harmonics_synth_pool = get_complete_spk_pool(str(ref_wav_file), wavlm, match_weights, synth_weights, f0_dir_parent = dataset_root_dir, device = device, duration_limit = duration_limit, vad_trigger_level = 7)
 
 			with open(cache_pickle, "wb") as handle:
 				pickle.dump((matching_pool, synth_pool, audio_synth_pool, spec_synth_pool, f0_pool, harmonics_synth_pool), handle)
 			
 	else:
 		# , vad_trigger_level = 7
-		matching_pool, synth_pool, audio_synth_pool, spec_synth_pool, f0_pool, harmonics_synth_pool = get_complete_spk_pool(ref_wav_file, wavlm, match_weights, synth_weights, f0_dir_parent = dataset_root_dir, device = device, duration_limit = duration_limit)
+		matching_pool, synth_pool, audio_synth_pool, spec_synth_pool, f0_pool, harmonics_synth_pool = get_complete_spk_pool(str(ref_wav_file), wavlm, match_weights, synth_weights, f0_dir_parent = dataset_root_dir, device = device, duration_limit = duration_limit)
 
 
 
