@@ -22,9 +22,14 @@ if len(sys.argv) < 3:
 # Or, if you would like the vocoder trained not using prematched data, set prematched=False.
 
 
+topk = 4
+device = "cuda"
+prioritize_f0 = True
+tgt_loudness_db = -16
+
+
 
 import os
-
 # for now, args are SRC_FILE, TGT_FILE, POST_OPT_TYPE, CKPT_TYPE
 # if the first path is a file, then assume the simplest src file to ref file case
 if os.path.isfile(sys.argv[1]):
@@ -39,30 +44,31 @@ if os.path.isfile(sys.argv[1]):
 	src_wav_path = sys.argv[1]
 	ref_wav_path = sys.argv[2]
 
-	out_wav = knn_vc.special_match(src_wav_file = src_wav_path, ref_wav_file = ref_wav_path, topk = 4, device = "cuda", prioritize_f0 = True, ckpt_type = sys.argv[-1], tgt_loudness_db = -16, post_opt = sys.argv[-2])
+	out_wav = knn_vc.special_match(src_wav_file = src_wav_path, ref_wav_file = ref_wav_path, topk = topk, device = device, prioritize_f0 = prioritize_f0, ckpt_type = sys.argv[-1], tgt_loudness_db = tgt_loudness_db, post_opt = sys.argv[-2])
 
 	import sys
 	sys.exit()
 
 
-import argparse
-parser = argparse.ArgumentParser()
+# import argparse
+# parser = argparse.ArgumentParser()
 
 # "/home/ken/Downloads/knn_vc_data/test"
 # "/home/ken/Downloads/knn_vc_data/OpenSinger_test"
 # "/home/ken/Downloads/knn_vc_data/OpenSinger_test"
-parser.add_argument('--src_folder', type=str)
+# parser.add_argument('--src_folder', type=str)
 # "/home/ken/Downloads/knn_vc_data/test"
 # "/home/ken/Downloads/knn_vc_data/OpenSinger_test"
 # "/home/ken/Downloads/knn_vc_data/nus-smc-corpus_48"
-parser.add_argument('--tgt_folder', type=str)
-parser.add_argument('--ckpt_type', type=str)
-parser.add_argument('--post_opt', type=str)
+# parser.add_argument('--tgt_folder', type=str)
+# parser.add_argument('--ckpt_type', type=str)
+# parser.add_argument('--post_opt', type=str)
 
-parser.add_argument('--topk', default=4)
-parser.add_argument('--device', default="cuda")
-parser.add_argument('--prioritize_f0', default=True)
-parser.add_argument('--tgt_loudness_db', default=-16)
+
+# parser.add_argument('--topk', default=4)
+# parser.add_argument('--device', default="cuda")
+# parser.add_argument('--prioritize_f0', default=True)
+# parser.add_argument('--tgt_loudness_db', default=-16)
 
 
 # "/home/ken/open/knn-vc-master/data_splits/test_to_test.txt"
