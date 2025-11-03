@@ -1,10 +1,10 @@
 # kNN-SVC: Robust Zero-Shot Singing Voice Conversion with Additive Synthesis and Concatenation Smoothness Optimization (kNN-SVC)
 
-This repo provides inference for kNN-SVC. The project is managed with Poetry for reproducible, isolated runs. Quick start on GitHub:
+This repo provides inference for kNN-SVC. The project is managed with Poetry for reproducible, isolated runs.
 
 - Prereqs: Python 3.11, Poetry
 - Install deps: `poetry install`
-- Checkpounts can be found under the Release tab, place them in a folder and specify it as a command line argument (or modify it in the notebook)
+- Checkpoints can be found under the Releases tab, place them in a folder and specify it as a command line argument (or modify it in the notebook)
 - Run conversions using any of the three pathways below. Feel free to report bugs/errors via Issues.
 
 All examples assume 16kHz, mono audio inputs.
