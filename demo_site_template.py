@@ -128,6 +128,17 @@ body_str += """
 <h1>kNN-SVC: Robust Zero-Shot Singing Voice Conversion with Additive Synthesis and Concatenation Smoothness Optimization</h1>
 """
 
+# Links: paper (arXiv PDF) and GitHub repo
+body_str += """
+<div style="text-align:center; margin: 10px 0 20px 0; font-size: 29px;">
+    	<a href="https://arxiv.org/pdf/2504.05686" target="_blank" rel="noopener">Paper (arXiv PDF)</a>
+    	&nbsp;|&nbsp;
+    	<a href="https://github.com/SmoothKen/knn-svc" target="_blank" rel="noopener">Code (GitHub)</a>
+    	&nbsp;|&nbsp;
+    	<a href="https://scholar.google.com/citations?user=jcQHdRgAAAAJ" target="_blank" rel="noopener">Keren's Google Scholar</a>
+</div>
+"""
+
 body_str += """
 <br><br>
 <h2>Introduction</h2>
@@ -351,6 +362,10 @@ with open("/home/ken/Downloads/extra_file", "w") as f:
 # 
 inp = input('SERVER')
 os.system(f"rsync -rvzu /home/ken/Downloads/index.html root@{inp}:/var/www/html/")
+
+
+import sys
+sys.exit()
 
 
 # os.system(f"rsync --relative -rvz /home/ken/Downloads/temp_Choral_not_used/special_comparison/ root@{inp}:/var/www/html/")

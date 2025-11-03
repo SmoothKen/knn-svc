@@ -76,16 +76,18 @@ def main():
 	if src_is_dir and tgt_is_dir:
 		# Bulk folder -> folder
 		duration_limits = [args.dur_limit]
+		tgt_parent = f"{os.path.dirname(os.path.abspath(args.tgt))}/"
 
 		for duration_limit in duration_limits:
 			converted_audio_dir = (
-				f"/home/ken/Downloads/knn_vc_data/"
+				f"{tgt_parent}"
 				f"{os.path.basename(args.src)}_to_{os.path.basename(args.tgt)}_"
 				f"{args.ckpt_type}_post_opt_{args.post_opt}/"
 			)
-			if duration_limit is not None:
-				converted_audio_dir = f"duration_limit_{duration_limit}_" + converted_audio_dir
 
+			if duration_limit is not None:
+				converted_audio_dir = converted_audio_dir.replace(tgt_parent, tgt_parent + f"duration_limit_{duration_limit}_")
+				
 			_ = knn.bulk_match(
 				src_dataset_path=args.src,
 				tgt_dataset_path=args.tgt,

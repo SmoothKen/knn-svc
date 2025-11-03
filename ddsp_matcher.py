@@ -958,8 +958,6 @@ class KNeighborsVC(nn.Module):
 		if "wavlm_only" not in ckpt_type and "no_harm_no_amp" not in ckpt_type:
 			out_feats_weighted, harmonics_out_feats_weighted, audio_out_feats_weighted, shifted_query_f0 = match_at_inference_time(Path(src_wav_file), Path(ref_wav_file), self.wavlm, match_weights = self.weighting, synth_weights = self.weighting, topk = topk, device = device, prioritize_f0 = prioritize_f0, ckpt_type = ckpt_type, post_opt = post_opt)
 
-			print(list(out_feats_weighted.keys()), src_wav_file)
-			
 			out_feats_weighted = out_feats_weighted[src_wav_file]
 			harmonics_out_feats_weighted = harmonics_out_feats_weighted[src_wav_file]
 			audio_out_feats_weighted = audio_out_feats_weighted[src_wav_file]

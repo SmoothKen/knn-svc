@@ -1,6 +1,6 @@
 # kNN-SVC: Robust Zero-Shot Singing Voice Conversion with Additive Synthesis and Concatenation Smoothness Optimization (kNN-SVC)
 
-This repo provides inference for kNN-SVC. Below are the three supported ways to run it:
+This repo provides inference for kNN-SVC. The project is managed with Poetry and all examples below use Poetry for reproducible, isolated runs. Below are the three supported ways to run it:
 
 1) Single file ➜ single file conversion (content ➜ style)
 2) Dataset (folder of speaker folders) ➜ dataset conversion
@@ -14,7 +14,7 @@ Runs the main entrypoint and saves output next to the source file as:
 <src_basename>_to_<tgt_basename>_knn_<ckpt_type>_<post_opt>.wav
 
 ```bash
-python ddsp_inference.py /path/to/src.wav /path/to/style.wav \
+poetry run python ddsp_inference.py /path/to/src.wav /path/to/style.wav \
     --ckpt_dir /path/to/ckpt_dir \
     --ckpt_type mix \
     --post_opt post_opt_0.2 \
@@ -31,11 +31,11 @@ Notes:
 ## 2) Dataset ➜ dataset
 
 Both `src` and `tgt` should be dataset roots that contain speaker subfolders.
-Converted audio will be written under a directory automatically created like:
-`/home/ken/Downloads/knn_vc_data/{src_name}_to_{tgt_name}_{ckpt_type}_post_opt_{post_opt}/`
+Converted audio will be written under the parent directory of the target dataset folder, in a directory automatically created like:
+`<parent_of_tgt>/{src_name}_to_{tgt_name}_{ckpt_type}_post_opt_{post_opt}/`
 
 ```bash
-python ddsp_inference.py /path/to/src_dataset_root /path/to/tgt_dataset_root \
+poetry run python ddsp_inference.py /path/to/src_dataset_root /path/to/tgt_dataset_root \
     --ckpt_dir /path/to/ckpt_dir \
     --ckpt_type mix \
     --post_opt post_opt_0.2 \
@@ -54,6 +54,12 @@ Open `knnsvc_demo.ipynb` for an interactive, quick demo that uses the same `ddsp
 Steps:
 - Ensure you have 16kHz, mono WAVs for the source (content) and target (style).
 - In the first cell, set `src_wav_path` and `ref_wav_path` and optionally tweak `ckpt_type`, `post_opt`, and `topk`.
+- Launch the notebook using Poetry so it can see the project dependencies:
+
+    ```bash
+    poetry run jupyter notebook knnsvc_demo.ipynb
+    ```
+
 - Run the next cell to perform the conversion. The result will be saved next to the source file as:
     `<src_basename>_to_<tgt_basename>_knn_<ckpt_type>_<post_opt>.wav`
 - Subsequent cells will load and play the result inside the notebook.
