@@ -1,49 +1,148 @@
+def play_sequence(audio_chunk, f_s = 16000):
+	import sounddevice as sd
+	sd.play(audio_chunk, f_s, blocking = True)
 
 
+def plot_matrix(mat, row_names = None, col_names = None, title = "", x_axis = "", y_axis = "", fig = None, fig_row = 2, fig_col = 1):
 
-# assume input to be (T,) or (channel, T)
-def save_audio(target_file, audio_array, sr):
-	if target_file.split(".")[-1] == "wav":
-		import soundfile as sf
-		sf.write(target_file, audio_array, sr, subtype='PCM_24')
+	import plotly.express as px
+	show_on_screen = (fig is None)
+	if show_on_screen:
+		fig = px.imshow(mat, text_auto=True, x=col_names, y=row_names, aspect='auto', color_continuous_scale='Bluered_r')
+		
+		
 	else:
-		from pydub import AudioSegment
+		import plotly.graph_objects as go
+		fig_imshow = px.imshow(mat, text_auto=True, x=col_names, y=row_names, aspect='auto', color_continuous_scale='Bluered_r')
+		fig.add_trace(go.Heatmap(fig_imshow.data[0]),row=fig_row, col=fig_col)
+		
+		# fig.update_layout(coloraxis_showscale=True, coloraxis=dict(colorbar_len=0.5, colorbar_y=0.80))
+		fig.update_layout(coloraxis_showscale=False)
+	
+	fig.update_layout(
+		title=title,
+		xaxis_title=x_axis,
+		yaxis_title=y_axis,
+		margin={"l":40, "r":40, "t":40, "b":40},
+		font=dict(size=25),
+		hoverlabel=dict(font_size=25),
+		autosize=True,
+		template="simple_white"
+	)
+
+	if show_on_screen:
+		fig.show()	
+	else:
+		return fig
+
+
+# ys list of y sequences
+def plot_multi_sequences(x, ys, y_names, title = "", template="plotly", width = None, height = None, x_axis = None, y_axis = None, initial_visibility = True, fig = None, fig_row = 1, fig_col = 1):
+	'''
+	
+	import pandas as pd
+	data_df = pd.DataFrame(ys, index=y_names, columns=x).T
+	
+	import plotly.express as px
+	# print(data_df)
+	fig = px.line(data_df)
+
+	'''
+	
+	import plotly.graph_objects as go
+
+	# https://community.plotly.com/t/hovertemplate-does-not-show-name-property/36139/2
+	
+	show_on_screen = (fig is None)
+	if show_on_screen:
+		fig = go.Figure(data = [go.Scatter(x = x, y = ys[i], name = y_names[i], meta = [y_names[i]], hovertemplate = '%{meta}<br>x=%{x}<br>y=%{y}<extra></extra>') for i in range(len(ys))])
+	else:
+		fig.append_trace(go.Scatter(x = x, y = ys[0], name = y_names[0], meta = [y_names[0]], hovertemplate = '%{meta}<br>x=%{x}<br>y=%{y}<extra></extra>'), row=fig_row, col=fig_col)
+	
+	
+	fig.update_layout(
+		title=title,
+		font=dict(size=25),
+		hoverlabel=dict(font_size=25),
+		margin={"l":40, "r":40, "t":40, "b":40},
+		autosize=True,
+		template=template,
+		width=width,
+		height=height,
+		xaxis_title=x_axis, 
+		yaxis_title=y_axis
+	)
+	
+	
+	if not initial_visibility:
+		fig.update_traces(visible = 'legendonly')
 		
 		
-		# float to int conversion
-		import numpy as np
-		if audio_array.dtype.itemsize == 8:
-			# not 32768 to avoid reaching 65536 in case of 1.0
-			audio_array = (audio_array*32767).astype(np.int16)
-
-		if audio_array.dtype.itemsize not in (1, 2, 4):
-			raise ValueError(f"Numpy Array ({audio_array.dtype.itemsize*8}) must contain 8, 16, or 32 bit values.")
+	if show_on_screen:
+		fig.show(config = {'showTips':False})
+	else:
+		return fig
+	
 
 
-		# Determine nchannels
-		if len(audio_array.shape) == 1:
-			audio_array = audio_array[None, :]
-		assert len(audio_array.shape) == 2
 
+def save_audio(filename, waveform, sample_rate):
+	
+	# first convert as we may need it to become bytes later
+	import torch
+	if isinstance(waveform, torch.Tensor):
+		waveform = waveform.detach().cpu().numpy()
+
+	
+	import numpy as np
+	# print(waveform.shape, np.max(waveform), np.min(waveform))
+
+	
+	# convert to int32 if it is [-1, 1] float
+	if waveform.dtype == np.float32 or waveform.dtype == np.float64:
+		
+		# ensure it is in [-1, 1]
+		waveform_abs_max = np.max(np.abs(waveform))
+		if waveform_abs_max > 1:
+			waveform = waveform/waveform_abs_max
+	
+		
+		
+		waveform = waveform * (2 ** 31 - 1)   
+		waveform = waveform.astype(np.int32)
+	else:
+		assert waveform.dtype == np.int32
+		
+		
+
+	if filename.endswith(".wav"):
+		import soundfile as sf
+		sf.write(filename, waveform.T, samplerate = sample_rate, subtype = 'PCM_32')
+		
+	else:
+		
+		
+		if waveform.ndim == 2:
+			if waveform.shape[0] in {1, 2}:
+				waveform = waveform.T
+				
+			channels = waveform.shape[1]
+		elif waveform.ndim == 1:
+			channels = 1
+		else:
+			import sys
+			sys.exit("Bad audio array shape")
+		
+			
+		
 		from pydub import AudioSegment
-		audio_segment = AudioSegment(
-			audio_array.T.tobytes(), 
-			frame_rate=sr,
-			sample_width=audio_array.dtype.itemsize, 
-			channels=audio_array.shape[0]
-		)
-		audio_segment.export(target_file, format=target_file.split(".")[-1], bitrate="320k")
+		song = AudioSegment(waveform.tobytes(), frame_rate=sample_rate, sample_width=4, channels=channels)
+		
+		assert filename.split(".")[-1] in {"mp3", "flac"}
+		
+		song.export(filename, format=filename.split(".")[-1], bitrate="320k")
 
 
-		'''
-		# Create an array of mono audio segments
-		monos = []
-		for i in range(len(audio_array)):
-			monos.append(AudioSegment(audio_array[i, :].tobytes(), frame_rate=sr, sample_width=audio_array.dtype.itemsize, channels=1))
-
-		audio_segment = AudioSegment.from_mono_audiosegments(*monos)
-		audio_segment.export(target_file, format=target_file.split(".")[-1])
-		'''
 
 
 def fast_cosine_dist(source_feats_collection, matching_pool, increment = 20):
@@ -269,3 +368,5 @@ def knn_with_concat_cost(target_feature_indices, src_elements, tgt_elements, shi
 		
 	return torch.stack(new_target_feature_indices)
 	
+
+

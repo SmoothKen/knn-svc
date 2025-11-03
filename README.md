@@ -1,20 +1,74 @@
 # kNN-SVC: Robust Zero-Shot Singing Voice Conversion with Additive Synthesis and Concatenation Smoothness Optimization (kNN-SVC)
 
-(The single file conversion should now work as expected. I'm continuing to remove hard-coded references in the bulk conversion process. Most of the errors stemmed from stripping down parts of the original knn-vc code. If you're using the repository and run into any issues, feel free to open an issue or submit a pull request. You can also reach out to me directly at k5shao@ucsd.edu.)
+This repo provides inference for kNN-SVC. Below are the three supported ways to run it:
 
-The official code repo! This repo contains training and inference code for the paper "kNN-SVC: Robust Zero-Shot Singing Voice Conversion with Additive Synthesis and Concatenation Smoothness Optimization". The trained checkpoints are available under the 'Releases' tab.
+1) Single file ➜ single file conversion (content ➜ style)
+2) Dataset (folder of speaker folders) ➜ dataset conversion
+3) A tiny demo notebook for quick testing
+
+All examples assume 16kHz, mono audio inputs.
+
+## 1) Single file ➜ single file
+
+Runs the main entrypoint and saves output next to the source file as:
+<src_basename>_to_<tgt_basename>_knn_<ckpt_type>_<post_opt>.wav
+
+```bash
+python ddsp_inference.py /path/to/src.wav /path/to/style.wav \
+    --ckpt_dir /path/to/ckpt_dir \
+    --ckpt_type mix \
+    --post_opt post_opt_0.2 \
+    --topk 4 \
+    --device cuda \
+    --prioritize_f0 true \
+    --tgt_loudness_db -16
+```
+
+Notes:
+- `--ckpt_type` options include: mix, mix_harm_no_amp_*, mix_no_harm_no_amp_*, wavlm_only, wavlm_only_original
+- `--post_opt` can be `no_post_opt` or `post_opt_0.2`
+
+## 2) Dataset ➜ dataset
+
+Both `src` and `tgt` should be dataset roots that contain speaker subfolders.
+Converted audio will be written under a directory automatically created like:
+`/home/ken/Downloads/knn_vc_data/{src_name}_to_{tgt_name}_{ckpt_type}_post_opt_{post_opt}/`
+
+```bash
+python ddsp_inference.py /path/to/src_dataset_root /path/to/tgt_dataset_root \
+    --ckpt_dir /path/to/ckpt_dir \
+    --ckpt_type mix \
+    --post_opt post_opt_0.2 \
+    --required_subset_file /path/to/split.csv \
+    --dur_limit 30
+```
+
+Notes:
+- `--required_subset_file` can filter which files are processed (CSV format expected by the code)
+- `--dur_limit` restricts the target pool to the first N minutes (set to a number or leave empty for all)
+
+
+## 3) Notebook demo
+
+Open `knnsvc_demo.ipynb` for an interactive, quick demo that uses the same `ddsp_inference.py` entrypoint under the hood.
+
+Steps:
+- Ensure you have 16kHz, mono WAVs for the source (content) and target (style).
+- In the first cell, set `src_wav_path` and `ref_wav_path` and optionally tweak `ckpt_type`, `post_opt`, and `topk`.
+- Run the next cell to perform the conversion. The result will be saved next to the source file as:
+    `<src_basename>_to_<tgt_basename>_knn_<ckpt_type>_<post_opt>.wav`
+- Subsequent cells will load and play the result inside the notebook.
+
+Tip: `ckpt_type` options include `mix`, `mix_harm_no_amp_*`, `mix_no_harm_no_amp_*`, `wavlm_only`, `wavlm_only_original`. `post_opt` can be `no_post_opt` or `post_opt_0.2`.
+
 
 Links:
 
 - Arxiv paper: [https://arxiv.org/abs/2504.05686](https://arxiv.org/abs/2504.05686)
 - Demo page with samples: [http://knnsvc.com/](http://knnsvc.com/)
-
-
 ![kNN-SVC method](./knn-svc.png)
+![kNN-SVC notebook](./knnsvc_demo.ipynb)
 
-Figure: kNN-SVC setup. Two techniques that synergize with the knn-VC backbone to enhance the robustness of the singing voice conversion. 
-
-The source and reference utterance(s) are encoded into self-supervised features using WavLM. Each source feature is assigned to the mean of the k closest features from the reference. The resulting feature sequence is then vocoded with HiFi-GAN to arrive at the converted waveform output.
 
 **Authors**:
 
@@ -23,92 +77,6 @@ The source and reference utterance(s) are encoded into self-supervised features 
 - [Matthew Baas](https://rf5.github.io/)
 - [Shlomo Dubnov](http://dub.ucsd.edu/)
 
-## Quickstart
-
-Usage:
-
-```bash
-ddsp_inference.py src_file tgt_file post_opt_0.2 mix_harm_no_amp_0.552
-```
-
-TODO: a helper function to clarify the argument `post_opt_0.2` and `mix_harm_no_amp_0.552`
-
-## Checkpoints
-
-Under the releases tab of this repo we provide three checkpoints:
-
-- The frozen WavLM encoder taken from the [original WavLM authors](https://github.com/microsoft/unilm/tree/master/wavlm), which we host here for convenience and torch hub integration.
-- The HiFiGAN vocoder trained on **prematched** layer 6 of WavLM features (the best model in the paper).
-
-
-
-## Training
-
-We follow the typical encoder-converter-vocoder setup for voice conversion. The encoder is WavLM, the converter is k-nearest neighbors regression, and vocoder is HiFiGAN. The only component that requires training is the vocoder:
-
-1. **WavLM encoder**: we simply use the pretrained WavLM-Large model and do not train it for any part of our work. We suggest checking out the original [WavLM repo](https://github.com/microsoft/unilm) to train your own SSL encoder.
-2. **kNN conversion model**: kNN is non-parametric and does not require any training :)
-3. **HiFiGAN vocoder**: we adapt the original [HiFiGAN author's repo](https://github.com/jik876/hifi-gan) for vocoding WavLM features. This is the only part which requires training.
-
-### HiFiGAN training
-
-For training we require the same dependencies as the original HiFiGAN training [here](https://github.com/jik876/hifi-gan/blob/master/requirements.txt) -- namely `librosa`, `tensorboard`, `matplotlib`, `fastprogress`, `scipy`.
-Then, to train the HiFiGAN:
-
-1. **Precompute WavLM features of the vocoder dataset**: we provide a utility for this for the LibriSpeech dataset in `prematch_dataset.py`:
-
-    ```bash
-    usage: prematch_dataset.py [-h] --librispeech_path LIBRISPEECH_PATH
-                            [--seed SEED] --out_path OUT_PATH [--device DEVICE]
-                            [--topk TOPK] [--matching_layer MATCHING_LAYER]
-                            [--synthesis_layer SYNTHESIS_LAYER] [--prematch]
-                            [--resume]
-    ```
-
-    where you can specify `--prematch` or not to determine whether to use prematching when generating features or not. For example, to generate the dataset used to train the prematched HiFiGAN from the paper:
-    `python prematch_dataset.py --librispeech_path /path/to/librispeech/root --out_path /path/where/you/want/outputs/to/go --topk 4 --matching_layer 6 --synthesis_layer 6 --prematch`
-
-2. **Train HiFiGAN**: we adapt the training script from the [original HiFiGAN repo](https://github.com/jik876/hifi-gan) to work for WavLM features in `hifigan/train.py`. To train a hifigan model on the features you produced above:
-
-    ```bash
-    python -m hifigan.train --audio_root_path /path/to/librispeech/root/ --feature_root_path /path/to/the/output/of/previous/step/ --input_training_file data_splits/wavlm-hifigan-train.csv --input_validation_file data_splits/wavlm-hifigan-valid.csv --checkpoint_path /path/where/you/want/to/save/checkpoint --fp16 False --config hifigan/config_v1_wavlm.json --stdout_interval 25 --training_epochs 1800 --fine_tuning
-    ```
-
-    That's it! Once it is run up till 2.5M updates (or it starts to sound worse) you can stop training and use the pretrained checkpoint.
-
-
-## Repository structure
-
-The codebase mostly maintains consistency with the knn-vc (https://github.com/bshall/knn-vc). The `ddsp_` prefix is just a relic rename, and the additive synthesis part does not involve the use of neural networks. The implementations for the techniques introduced in the paper can be found at `ddsp_prematch_dataset.py`. 
-
-
-```
-├── data_splits                             # csv train/validation splits for librispeech train-clean-100
-│   ├── wavlm-hifigan-train.csv
-│   └── wavlm-hifigan-valid.csv
-├── hifigan                                 # adapted hifigan code to vocode wavlm features
-│   ├── config_v1_wavlm.json                # hifigan config for use with wavlm features
-│   ├── ddsp_meldataset.py                       # mel-spectrogram transform used during hifigan training
-│   ├── models.py                           # hifigan model definition
-│   ├── train.py                            # hifigan training script
-│   └── utils.py                            # utilities used for hifigan inference/training
-├── ddsp_hubconf.py                              # torchhub integration
-├── ddsp_matcher.py                              # kNN matching logic and model wrapper
-├── ddsp_prematch_dataset.py                     # script to precompute wavlm features for librispeech
-├── README.md                               
-└── wavlm                                   
-    ├── modules.py                          # wavlm helper functions (from original WavLM repo)
-    └── WavLM.py                            # wavlm modules (from original WavLM repo)
-```
-
-
-## Acknowledgements
-
-Parts of code for this project are adapted from the following repositories -- please make sure to check them out! Thank you to the authors of:
-
-- HiFiGAN: https://github.com/jik876/hifi-gan
-- WavLM: https://github.com/microsoft/unilm/tree/master/wavlm
-- knn-vc: https://github.com/bshall/knn-vc
 
 ## Citation
 
@@ -122,6 +90,7 @@ Parts of code for this project are adapted from the following repositories -- pl
   organization={IEEE}
 }
 ```
+
 
 
 

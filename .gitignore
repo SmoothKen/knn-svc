@@ -131,3 +131,8 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+.venv/
+.ruff_cache/
+.DS_Store
+.vscode/
+.idea/

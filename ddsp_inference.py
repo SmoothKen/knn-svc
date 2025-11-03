@@ -1,148 +1,111 @@
 
 import sys
 sys.path.append("/home/ken/open")
-from lib_ongaku_test import save_audio
 
-import torch, torchaudio
+"""
+Clean CLI for ddsp_inference with two modes:
+  a) file-to-file conversion (content file -> style file)
+  b) folder-to-folder bulk conversion (content folder -> style folder)
 
-# knn_vc = torch.hub.load('bshall/knn-vc', 'knn_vc', prematched=True, trust_repo=True, pretrained=True)
-import sys
-if len(sys.argv) < 3:
-	print("Enter content wav as \$1, and style wavs as \$2...")
-	
-
-
-
-
-
-
-# WavLM ckpt: /home/ken/.cache/torch/hub/checkpoints/WavLM-Large.pt
-# HiFi-GAN ckpt: /home/ken/.cache/torch/hub/checkpoints/prematch_g_02500000.pt
-
-# Or, if you would like the vocoder trained not using prematched data, set prematched=False.
-
-
-topk = 4
-device = "cuda"
-prioritize_f0 = True
-tgt_loudness_db = -16
-
-
+Defaults follow the previously hard-coded values to maintain behavior.
+"""
 
 import os
-# for now, args are SRC_FILE, TGT_FILE, POST_OPT_TYPE, CKPT_TYPE
-# if the first path is a file, then assume the simplest src file to ref file case
-if os.path.isfile(sys.argv[1]):
-	assert len(sys.argv) > 4
-	
+import argparse
+
+
+def str2bool(v: str) -> bool:
+	v = v.lower()
+	if v in ("yes", "true", "t", "1", "y"): return True
+	if v in ("no", "false", "f", "0", "n"): return False
+	raise argparse.ArgumentTypeError("boolean value expected")
+
+
+def main():
+	parser = argparse.ArgumentParser(description="kNN-SVC inference: file or folder mode")
+	# Positional paths; each can be a file or a folder
+	_ = parser.add_argument("src", help="Content source: path to an audio file OR a dataset root (folder of speaker folders) of audio files grouped by speaker")
+	_ = parser.add_argument("tgt", help="Style target: path to an audio file OR a dataset root (folder of speaker folders) of audio files grouped by speaker")
+
+	# Model/runtime options (defaults replicate previous hard-coded values)
+	_ = parser.add_argument("--ckpt_dir", type=str, default="/home/ken/Downloads/knn_vc_data/ckpt_saved", help="The directory in which the checkpoints are stored, if they are local ones")
+	_ = parser.add_argument("--ckpt_type", type=str, default="mix", help="Checkpoint type: e.g., mix, mix_harm_no_amp_*, mix_no_harm_no_amp_*, wavlm_only, wavlm_only_original")
+
+	_ = parser.add_argument("--post_opt", type=str, default="no_post_opt", help="inference-time smoothness optimization setting: e.g., no_post_opt or post_opt_0.2")
+
+
+	_ = parser.add_argument("--required_subset_file", type=str, default=None, help="CSV defining subset for bulk conversion; if provided, restricts processed files")
+
+
+	_ = parser.add_argument("--topk", type=int, default=4)
+	_ = parser.add_argument("--device", type=str, default="cuda")
+	_ = parser.add_argument("--prioritize_f0", type=str2bool, default=True)
+	_ = parser.add_argument("--tgt_loudness_db", type=float, default=-16)
+
+
+	_ = parser.add_argument("--dur_limit", type=int, default=None, help="Duration limit set on the target pool (i.e. will restrict to only the first N minutes)")
+
+
+	args = parser.parse_args()
+
+	# Load model
 	from ddsp_hubconf import knn_vc
-	knn_vc = knn_vc(pretrained=True, progress=True, prematched=True, device='cuda', ckpt_type = sys.argv[-1])
-	# src_wav_path = sys.argv[1]
-	# ref_wav_paths = sys.argv[2:-1]
+	knn = knn_vc(pretrained=True, progress=True, prematched=True, device=args.device, ckpt_type=args.ckpt_type, local_ckpt_dir = args.ckpt_dir)
 
-	
-	src_wav_path = sys.argv[1]
-	ref_wav_path = sys.argv[2]
+	# Decide mode by filesystem
+	src_is_file = os.path.isfile(args.src)
+	tgt_is_file = os.path.isfile(args.tgt)
+	src_is_dir = os.path.isdir(args.src)
+	tgt_is_dir = os.path.isdir(args.tgt)
 
-	out_wav = knn_vc.special_match(src_wav_file = src_wav_path, ref_wav_file = ref_wav_path, topk = topk, device = device, prioritize_f0 = prioritize_f0, ckpt_type = sys.argv[-1], tgt_loudness_db = tgt_loudness_db, post_opt = sys.argv[-2])
+	if src_is_file and tgt_is_file:
+		# Single file -> single file
+		_ = knn.special_match(
+			src_wav_file=args.src,
+			ref_wav_file=args.tgt,
+			topk=args.topk,
+			device=args.device,
+			prioritize_f0=args.prioritize_f0,
+			ckpt_type=args.ckpt_type,
+			tgt_loudness_db=args.tgt_loudness_db,
+			post_opt=args.post_opt,
+		)
+		# special_match will save audio and may exit internally
+		return
 
-	import sys
-	sys.exit()
+	if src_is_dir and tgt_is_dir:
+		# Bulk folder -> folder
+		duration_limits = [args.dur_limit]
 
+		for duration_limit in duration_limits:
+			converted_audio_dir = (
+				f"/home/ken/Downloads/knn_vc_data/"
+				f"{os.path.basename(args.src)}_to_{os.path.basename(args.tgt)}_"
+				f"{args.ckpt_type}_post_opt_{args.post_opt}/"
+			)
+			if duration_limit is not None:
+				converted_audio_dir = f"duration_limit_{duration_limit}_" + converted_audio_dir
 
-# import argparse
-# parser = argparse.ArgumentParser()
+			_ = knn.bulk_match(
+				src_dataset_path=args.src,
+				tgt_dataset_path=args.tgt,
+				converted_audio_dir=converted_audio_dir,
+				topk=args.topk,
+				device=args.device,
+				prioritize_f0=args.prioritize_f0,
+				ckpt_type=args.ckpt_type,
+				tgt_loudness_db=args.tgt_loudness_db,
+				required_subset_file=args.required_subset_file,
+				post_opt=args.post_opt,
+				duration_limit=duration_limit,
+			)
+		return
 
-# "/home/ken/Downloads/knn_vc_data/test"
-# "/home/ken/Downloads/knn_vc_data/OpenSinger_test"
-# "/home/ken/Downloads/knn_vc_data/OpenSinger_test"
-# parser.add_argument('--src_folder', type=str)
-# "/home/ken/Downloads/knn_vc_data/test"
-# "/home/ken/Downloads/knn_vc_data/OpenSinger_test"
-# "/home/ken/Downloads/knn_vc_data/nus-smc-corpus_48"
-# parser.add_argument('--tgt_folder', type=str)
-# parser.add_argument('--ckpt_type', type=str)
-# parser.add_argument('--post_opt', type=str)
-
-
-# parser.add_argument('--topk', default=4)
-# parser.add_argument('--device', default="cuda")
-# parser.add_argument('--prioritize_f0', default=True)
-# parser.add_argument('--tgt_loudness_db', default=-16)
-
-
-# "/home/ken/open/knn-vc-master/data_splits/test_to_test.txt"
-# "/home/ken/open/knn-vc-master/data_splits/OpenSinger_test_to_OpenSinger_test.txt"
-# "/home/ken/open/knn-vc-master/data_splits/OpenSinger_test_to_nus-smc-corpus_48.txt"
-parser.add_argument('--required_subset_file', default=None)
-parser.add_argument('--with_dur_limit', default=False)
-args = parser.parse_args()
-
-
-
-
-
-assert any(item in arg.ckpt_type for item in {"wavlm_only", "mix"}), "Bad sys.argv[-1]"
-
-
-# "wavlm_only" -> the original knn-vc, 
-# mix -> some relic
-# mix_no_harm_no_amp, bare pitch guidance
-# mix_harm_no_amp -> with AS
-if "wavlm_only" in arg.ckpt_type or "no_harm_no_amp" in arg.ckpt_type:
-	arg.post_opt = "no_post_opt"
-else:
-	assert arg.post_opt.startswith("post_opt") or arg.post_opt.startswith("no_post_opt")
+	raise SystemExit("Both inputs must be files or both must be folders.")
 
 
-
-from ddsp_hubconf import knn_vc
-knn_vc = knn_vc(pretrained=True, progress=True, prematched=True, device='cuda', ckpt_type = args.ckpt_type)
-
-if args.with_dur_limit:
-	duration_limits = ["5", "10", "30", "60", "90"]
-else:
-	duration_limits = [None]
-
-	
-for duration_limit in duration_limits:
-	
-	converted_audio_dir = f"/home/ken/Downloads/knn_vc_data/{os.path.basename(arg.src_folder)}_to_{os.path.basename(arg.tgt_folder)}_" + arg.ckpt_type + f"_post_opt_{arg.post_opt}/"
-	
-	if durtion_limit is not None:
-		converted_audio_dir = f"duration_limit_{duration_limit}_" + converted_audio_dir
-	
-	knn_vc.bulk_match(src_dataset_path = arg.src_folder,  tgt_dataset_path = arg.tgt_folder, converted_audio_dir = converted_audio_dir, topk = arg.topk, device = arg.device, prioritize_f0 = arg.prioritize_f0, ckpt_type = arg.ckpt_type, tgt_loudness_db = arg.tgt_loudness_db, required_subset_file = arg.required_subset_file, post_opt = arg.post_opt, duration_limit = duration_limit)
-
-
-
-
-
-
-
-
-
-# python ./ddsp_inference_cleaned.py ../../Downloads/temp_Choral_not_used/extra_comparisons/Danakil-voice_resampled_16000_cut.wav ../../Downloads/temp_Choral_not_used/extra_comparisons/Tiken_lead_07_resampled_16000_cut.wav no_post_opt mix
-# python ./ddsp_inference_cleaned.py ../../Downloads/temp_Choral_not_used/extra_comparisons/Danakil-voice_resampled_16000_cut.wav ../../Downloads/temp_Choral_not_used/extra_comparisons/Tiken_lead_07_resampled_16000_cut.wav post_opt_0.2 mix
-
-# % temp_plot command
-# python ./ddsp_inference_cleaned.py ../../Downloads/temp_Choral_not_used/ctd_1_b_ans_resampled_16000.wav ../../Downloads/temp_Choral_not_used/ctd_1_s_ans_resampled_16000.wav post_opt_0.2 mix
-
-
-
-# python ./ddsp_inference_cleaned.py ../../Downloads/temp_Choral_not_used/ctd_1_s_ans_resampled_16000.wav ../../Downloads/temp_Choral_not_used/ctd_1_b_ans_resampled_16000.wav no_post_opt mix_no_harm_no_amp_0.636
-
-
-
-
-# python ./ddsp_inference_cleaned.py ../../Downloads/temp_Choral_not_used/extra_comparisons/Danakil-voice_resampled_16000_cut.wav ../../Downloads/temp_Choral_not_used/extra_comparisons/Tiken_lead_07_resampled_16000_cut.wav post_opt_0.2 mix_harm_no_amp_0.552
-
-# python ./ddsp_inference_cleaned.py ../../Downloads/temp_Choral_not_used/ctd_1_b_ans_resampled_16000.wav ../../Downloads/temp_Choral_not_used/ctd_1_s_ans_resampled_16000.wav post_opt_0.2 mix_harm_no_amp_0.552
-
-# python ./ddsp_inference_cleaned.py ../../Downloads/temp_Choral_not_used/extra_comparisons/we_will_make_america_great_again_resampled_16000.wav ../../Downloads/temp_Choral_not_used/extra_comparisons/Hillary_Clinton_voice_resampled_16000.wav post_opt_0.2 mix_harm_no_amp_0.633
-
-
-# python ./ddsp_inference_cleaned.py ../../Downloads/temp_Choral_not_used/extra_comparisons/1_fuyu_no_hana_8k_Vocals_resampled_16000.wav ../../Downloads/temp_Choral_not_used/extra_comparisons/1_idol_yoasobi_Vocals_resampled_16000.wav post_opt_0.2 mix_harm_no_amp_0.552
+if __name__ == "__main__":
+	main()
 
 
 # python ./ddsp_inference.py ../../clips/matsuoka_yoshitsugu_resampled_16000.wav ../../clips/takahashi_rie_resampled_16000.wav no_post_opt mix

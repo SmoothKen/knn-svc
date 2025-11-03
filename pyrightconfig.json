@@ -1,0 +1,29 @@
+{
+    "venvPath": ".",
+    "venv": ".venv",
+    "useLibraryCodeForTypes": false,
+    "reportUndefinedVariable": "error",
+    "reportMissingImports": "error",
+    "reportMissingModuleSource": "error",
+    "reportMissingTypeStubs": "none",
+    "reportMissingParameterType": "none",
+    "reportUntypedFunctionDecorator": "none",
+    "reportAny": "none",
+    "reportUntypedClassDecorator": "none",
+    "reportUntypedBaseClass": "none",
+    "reportUnknownParameterType": "none",
+    "reportUnknownArgumentType": "none",
+    "reportUnknownLambdaType": "none",
+    "reportUnknownVariableType": "none",
+    "reportUnknownMemberType": "none",
+    "exclude": [
+        "**/.*",
+        "__pycache__/",
+        "**/.git",
+        "**/.venv",
+        "**/__pycache__",
+        "**/.pytest_cache",
+        "**/.mypy_cache",
+        "**/.ruff_cache"
+    ]
+}

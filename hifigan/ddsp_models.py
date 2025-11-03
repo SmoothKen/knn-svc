@@ -429,7 +429,7 @@ class SynthesizerTrn(nn.Module):
 		# import sys
 		# sys.exit()
 		# output (batch, time, 1) -> tranpose -> (batch, 1, time)
-		f0_wave = get_bulk_dsp_choral(f0, harmonics_out_feats_weighted, sample_rate = self.hps.sampling_rate, hop_size = self.hps.hop_size, dsp_type = "sin").transpose(1, 2)
+		f0_wave = get_bulk_dsp_choral(f0, harmonics_out_feats_weighted, sample_rate = self.hps.sampling_rate, hop_size = self.hps.hop_size).transpose(1, 2)
 		
 
 		

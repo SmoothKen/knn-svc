@@ -14,18 +14,20 @@ from hifigan.utils import AttrDict, load_checkpoint, scan_checkpoint
 from ddsp_matcher import KNeighborsVC
 
 
-def knn_vc(pretrained=True, progress=True, prematched=True, ckpt_type = "mix", device='cuda') -> KNeighborsVC:
+def knn_vc(pretrained=True, progress=True, prematched=True, ckpt_type = "mix", device='cuda', local_ckpt_dir = "/home/ken/Downloads/knn_vc_data/ckpt_saved") -> KNeighborsVC:
 	""" Load kNN-VC (WavLM encoder and HiFiGAN decoder). Optionally use vocoder trained on `prematched` data. """
 	# using self trained ones
 	# hifigan, hifigan_cfg = hifigan_wavlm(pretrained, progress, prematched, device)
 	
-	hifigan, hifigan_cfg = hifigan_wavlm(pretrained, progress, prematched, ckpt_type, device)
+	hifigan, hifigan_cfg = hifigan_wavlm(pretrained, progress, prematched, ckpt_type, device, local_ckpt_dir)
 	wavlm = wavlm_large(pretrained, progress, device)
 	knnvc = KNeighborsVC(wavlm, hifigan, hifigan_cfg, device)
 	return knnvc
 
 #  -> HiFiGAN
-def hifigan_wavlm(pretrained=True, progress=True, prematched=True, ckpt_type = "mix", device='cuda'):
+def hifigan_wavlm(pretrained=True, progress=True, prematched=True, ckpt_type = "mix", device='cuda', local_ckpt_dir = "/home/ken/Downloads/knn_vc_data/ckpt_saved"):
+
+
 	""" Load pretrained hifigan trained to vocode wavlm features. Optionally use weights trained on `prematched` data. """
 	cp = Path(__file__).parent.absolute()
 
@@ -76,10 +78,6 @@ def hifigan_wavlm(pretrained=True, progress=True, prematched=True, ckpt_type = "
 	else:
 	
 		import os
-		# local_ckpt_dir = "/home/ken/Downloads/knn_vc_data/ckpt"
-		local_ckpt_dir = "/home/ken/Downloads/knn_vc_data/ckpt_saved"
-		
-		
 		if os.path.isdir(local_ckpt_dir):
 			# cp_g = scan_checkpoint(local_ckpt_dir, 'g_')
 			
@@ -97,7 +95,7 @@ def hifigan_wavlm(pretrained=True, progress=True, prematched=True, ckpt_type = "
 			print("Loaded ckpt from local", cp_g)
 		else:
 			import sys
-			sys.exit("Bad ckpt location")
+			sys.exit(f"Bad ckpt {local_ckpt_dir} location")
 		
 	generator.eval()
 	# the decoder (or the original Generator class)

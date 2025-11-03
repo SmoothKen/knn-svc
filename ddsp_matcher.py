@@ -9,7 +9,6 @@ import torchaudio.transforms as T
 # from hifigan.models import Generator as HiFiGAN
 from hifigan.utils import AttrDict
 from torch import Tensor
-from torchaudio.sox_effects import apply_effects_tensor
 from wavlm.WavLM import WavLM
 from knnvc_utils import generate_matrix_from_index
 
@@ -18,43 +17,7 @@ def play_sequence(audio_chunk, f_s = 16000):
 	import sounddevice as sd
 	sd.play(audio_chunk, f_s, blocking = True)
 	
-def write_audio(filename, waveform, sample_rate):
-	
-	# first convert as we may need it to become bytes later
-	import torch
-	if isinstance(waveform, torch.Tensor):
-		waveform = waveform.detach().cpu().numpy()
-
-	
-	import numpy as np
-	# print(waveform.shape, np.max(waveform), np.min(waveform))
-	waveform_abs_max = np.max(np.abs(waveform))
-	if waveform_abs_max > 1:
-		waveform = waveform/waveform_abs_max
-	
-	
-	# convert to int32 if it is [-1, 1] float
-	if waveform.dtype == np.float32 or waveform.dtype == np.float64:
-		waveform = waveform * (2 ** 31 - 1)   
-		waveform = waveform.astype(np.int32)
-	else:
-		assert waveform.dtype == np.int32
-		
-		
-
-	if filename.endswith(".wav"):
-		import soundfile as sf
-		sf.write(filename, waveform.T, samplerate = sample_rate, subtype = 'PCM_32')
-		
-	else:
-		from pydub import AudioSegment
-		audio_segment = AudioSegment(
-			waveform.T.tobytes(), 
-			frame_rate=sample_rate,
-			sample_width=4, 
-			channels=waveform.shape[0]
-		)
-		audio_segment.export(filename, format=filename.split(".")[-1], bitrate="320k")
+from lib_ongaku_test import save_audio
 
 # ys list of y sequences
 def plot_multi_sequences(x, ys, y_names, title = "", template="plotly", width = None, height = None, x_axis = None, y_axis = None, initial_visibility = True):
@@ -971,7 +934,7 @@ class KNeighborsVC(nn.Module):
 	# @torch.inference_mode()
 	# : float | None  : float | None : str | None
 	# def special_match(self, query_seq: Tensor, matching_set: Tensor, query_audio, matching_audio, shifted_query_f0, query_f0, shifted_matching_f0, matching_f0, src_wav_path, ref_wav_paths, synth_set: Tensor = None, topk: int = 4, is_going_up = True, tgt_loudness_db = -16,  target_duration = None, device = None, without_vocode = False) -> Tensor:
-	def special_match(self, src_wav_file, ref_wav_file, topk: int = 4, device = None, prioritize_f0 = True, ckpt_type = "wavlm_only", tgt_loudness_db = -16, post_opt = False) -> Tensor:
+	def special_match(self, src_wav_file, ref_wav_file, topk: int = 4, device = None, prioritize_f0 = True, ckpt_type = "wavlm_only", tgt_loudness_db = -16, post_opt = "no_post_opt") -> Tensor:
 		
 		""" Given `query_seq`, `matching_set`, and `synth_set` tensors of shape (N, dim), perform kNN regression matching
 		with k=`topk`. Inputs:
@@ -995,6 +958,8 @@ class KNeighborsVC(nn.Module):
 		if "wavlm_only" not in ckpt_type and "no_harm_no_amp" not in ckpt_type:
 			out_feats_weighted, harmonics_out_feats_weighted, audio_out_feats_weighted, shifted_query_f0 = match_at_inference_time(Path(src_wav_file), Path(ref_wav_file), self.wavlm, match_weights = self.weighting, synth_weights = self.weighting, topk = topk, device = device, prioritize_f0 = prioritize_f0, ckpt_type = ckpt_type, post_opt = post_opt)
 
+			print(list(out_feats_weighted.keys()), src_wav_file)
+			
 			out_feats_weighted = out_feats_weighted[src_wav_file]
 			harmonics_out_feats_weighted = harmonics_out_feats_weighted[src_wav_file]
 			audio_out_feats_weighted = audio_out_feats_weighted[src_wav_file]
@@ -1047,13 +1012,13 @@ class KNeighborsVC(nn.Module):
 		# play_sequence(audio_out_feats_weighted.reshape(-1).detach().cpu().numpy())
 		# play_sequence(pred_wav.detach().cpu().numpy())
 		
-		# write_audio("/home/ken/Downloads/temp_Choral_not_used/" + src_identifier + "_to_" + ref_identifier + f"_knn_{ckpt_type}_{post_opt}.wav", pred_wav.detach().cpu().numpy(), sample_rate = 16000)
+		# save_audio("/home/ken/Downloads/temp_Choral_not_used/" + src_identifier + "_to_" + ref_identifier + f"_knn_{ckpt_type}_{post_opt}.wav", pred_wav.detach().cpu().numpy(), sample_rate = 16000)
 		from pathlib import Path
 		cache_file = str(Path(src_wav_file).parent) + "/" + src_identifier + "_to_" + ref_identifier + f"_knn_{ckpt_type}_{post_opt}.wav"
 		print("->", cache_file)
-		write_audio(cache_file, pred_wav.detach().cpu().numpy(), sample_rate = 16000)
+		save_audio(cache_file, pred_wav.detach().cpu().numpy(), sample_rate = 16000)
 		
-		# write_audio("/home/ken/Downloads/temp_Choral_not_used/raw_" + src_identifier + "_to_" + ref_identifier + "_knn_converted.wav", audio_out_feats_weighted.detach().cpu().numpy(), sample_rate = 16000)
+		# save_audio("/home/ken/Downloads/temp_Choral_not_used/raw_" + src_identifier + "_to_" + ref_identifier + "_knn_converted.wav", audio_out_feats_weighted.detach().cpu().numpy(), sample_rate = 16000)
 				
 				
 		import sys
@@ -1078,33 +1043,19 @@ class KNeighborsVC(nn.Module):
 		if src_dataset_path != tgt_dataset_path:
 			# to avoid error when caching pool
 			assert len(set(src_spk_folders).intersection(set(tgt_spk_folders))) == 0
-		
-		# print(spk_folders[:10])
-		# import sys
-		# sys.exit()
-		
-		do_flattening = False
-		# flatten each spk_folders
-		if do_flattening:
-			for spk_folder in spk_folders:
-				print("Flattening:", spk_folder)
-				os.system("find " + str(spk_folder) + " -mindepth 2 -type f -exec mv -t " + str(spk_folder) + " -f '{}' +")
-				os.system("find " + str(spk_folder) + " -type d -empty -delete")
-		# import sys
-		# sys.exit()
-		
-		# print(len(spk_folders))
-		# import sys
-		# sys.exit()
-		
 
-		# for each pair, for each item in matching_pool, we match it against the entire matching_pool_1 and save the info. Now at runtime, given a file and a target_spk, we also need the target_spk's synth_pool, so save that if not already saved.
-		
 
-		with open(required_subset_file) as fp:
-			import csv
-			reader = csv.reader(fp, delimiter=",", quotechar='"')
-			required_audio_subset = [row[2] for row_idx, row in enumerate(reader) if row_idx != 0 and row[-1] == "0"]
+		assert len(src_spk_folders) > 0, [f"Are you sure {src_dataset_path} is a FOLDER containing speaker folders, i.e. dataset root"]
+		assert len(tgt_spk_folders)> 0, [f"Are you sure {tgt_dataset_path} is a FOLDER containing speaker folders, i.e. dataset root"]
+
+		
+		if required_subset_file:
+			with open(required_subset_file, "r") as fp:
+				import csv
+				reader = csv.reader(fp, delimiter=",", quotechar='"')
+				required_audio_subset = [row[2] for row_idx, row in enumerate(reader) if row_idx != 0 and row[-1] == "0"]
+		else:
+			required_audio_subset = None
 
 		
 			
@@ -1112,16 +1063,17 @@ class KNeighborsVC(nn.Module):
 		# import sys
 		# sys.exit()
 
-
+		
 		from ddsp_prematch_dataset import match_at_inference_time
 		cache_dir = "/home/ken/copies/test_cached_" + ckpt_type
 		if os.path.isdir(cache_dir):
 			os.system(f"rm -rf {cache_dir}")
 
 
+
+
 		for i, spk_folder in enumerate(src_spk_folders):
 
-			
 			for j, tgt_spk_folder in enumerate(tgt_spk_folders):
 				# avoid self to self
 				if src_dataset_path == tgt_dataset_path and i == j:
@@ -1179,7 +1131,8 @@ class KNeighborsVC(nn.Module):
 				
 				for src_audio_file in predictions:
 					
-					converted_audio_file = os.path.join(converted_audio_dir, os.path.basename(src_audio_file).split(".")[0], os.path.basename(tgt_spk_folder) + "." + os.path.basename(src_audio_file).split(".")[-1])
+					
+					converted_audio_file = os.path.join(converted_audio_dir, os.path.basename(spk_folder), os.path.basename(src_audio_file).split(".")[0], os.path.basename(tgt_spk_folder) + "." + os.path.basename(src_audio_file).split(".")[-1])
 					
 					Path(converted_audio_file).parent.mkdir(parents = True, exist_ok = True)
 					
@@ -1198,7 +1151,7 @@ class KNeighborsVC(nn.Module):
 					# print(pred_wav.shape)
 					# import sys
 					# sys.exit()
-					write_audio(converted_audio_file, pred_wav[None, :].cpu().numpy(), sample_rate = self.sr)
-
-					# import sys
-					# sys.exit()
+					save_audio(converted_audio_file, pred_wav[None, :].cpu().numpy(), sample_rate = self.sr)
+			
+			
+				print(f"{os.path.basename(spk_folder)}, {os.path.basename(tgt_spk_folder)} -> {converted_audio_dir}")

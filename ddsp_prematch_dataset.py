@@ -1,20 +1,21 @@
 import argparse
-import gc
 import os
 import sys
-import time
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchaudio
-from fastprogress.fastprogress import master_bar, progress_bar
 from torch import Tensor
 
 from hubconf import wavlm_large
+
+
+sys.path.append("/home/ken/open")
+from lib_ongaku_test import fast_cosine_dist
+
 
 DOWNSAMPLE_FACTOR = 320
 
@@ -24,200 +25,99 @@ global synthesis_cache
 synthesis_cache = {}
 
 
-# assume col_names is the same as row_names 
-def plot_matrix(mat, row_names = None, col_names = None, title = "", x_axis = "", y_axis = "", fig = None, fig_row = 2, fig_col = 1, reverse = False):
-
-	import plotly.express as px
-	show_on_screen = (fig is None)
-	if show_on_screen:
-		fig = px.imshow(mat, text_auto=True, x=col_names, y=row_names, aspect='auto', color_continuous_scale='Bluered_r')
-		
-		
+# --------a relic fucntion for figure in the paper----------
+def temp_plot(post_opt, target_feature_indices, synth_feats):
+	
+	
+	folder = "/home/ken/Downloads/temp_Choral_not_used/"
+	if "no_post_opt" in post_opt:
+		src_wav_file = folder + "ctd_1_b_ans_resampled_16000_to_ctd_1_s_ans_resampled_16000_knn_mix_no_post_opt.wav"
 	else:
-		import plotly.graph_objects as go
-		fig_imshow = px.imshow(mat, text_auto=True, x=col_names, y=row_names, aspect='auto', color_continuous_scale='Bluered_r')
-		fig.add_trace(go.Heatmap(fig_imshow.data[0]),row=fig_row, col=fig_col)
-		
-		# fig.update_layout(coloraxis_showscale=True, coloraxis=dict(colorbar_len=0.5, colorbar_y=0.80))
-		fig.update_layout(coloraxis_showscale=False)
+		src_wav_file = folder + "ctd_1_b_ans_resampled_16000_to_ctd_1_s_ans_resampled_16000_knn_mix_post_opt_0.3.wav"
 	
-	fig.update_layout(
-		title=title,
-		xaxis_title=x_axis,
-		yaxis_title=y_axis,
-		margin={"l":40, "r":40, "t":40, "b":40},
-		font=dict(size=25),
-		hoverlabel=dict(font_size=25),
-		autosize=True,
-		template="simple_white"
-	)
-
-	if show_on_screen:
-		fig.show()	
-	else:
-		return fig
-
-
-def make_librispeech_df(root_path: Path) -> pd.DataFrame:
-	all_files = []
-	folders = ['train-clean-100', 'dev-clean']
-	print(f"[LIBRISPEECH] Computing folders {folders}")
-	for f in folders:
-		all_files.extend(list((root_path/f).rglob('**/*.flac')))
-	speakers = ['ls-' + f.stem.split('-')[0] for f in all_files]
-	df = pd.DataFrame({'path': all_files, 'speaker': speakers})
-	return df
-
-
-# path -> spk_folder, dataset_root_dir -> folder that contains all spk_folders
-# duration_limit in second
-
-# f0_dir_parent -> the parent dir of f0_dir
-def get_complete_spk_pool(path: Path, wavlm: nn.Module(), match_weights: Tensor, synth_weights: Tensor, f0_dir_parent, device = "cuda", duration_limit = None, vad_trigger_level = 0):
-	"""load and wavlm process all flac for any given spk"""
-
-	matching_pool = dict()
-	synth_pool = dict()
-	spec_synth_pool = dict()
-	audio_synth_pool = dict()
-	f0_pool = dict()
-	harmonics_amp_synth_pool = dict()
-	if os.path.isfile(path) and os.path.splitext(path)[-1] in {".flac", ".wav", ".mp3"}:
-		print("Info: Processing a Single File")
-		uttrs_from_same_spk = [path]
-	else:
-		uttrs_from_same_spk = sorted(list(path.rglob('**/*.flac')) + list(path.rglob('**/*.wav')))
-
-	
-	if len(uttrs_from_same_spk) == 0:
-		print("Bad directory", path)
-		import sys
-		sys.exit()
-	
-
-	STFT_OP = torchaudio.transforms.Spectrogram(n_fft = 400, hop_length = DOWNSAMPLE_FACTOR, center = True, power = 1)
+	from lib_ongaku_test import batch_load_audio
+	y_1, sr = batch_load_audio(src_wav_file, sr = 16000)
+	y_1 = y_1[0]
+	print(y_1.shape)
 	
 	
-	# ensure rglob above sorted to avoid result variance
-	accumulated_duration_so_far = 0
-
-
-	for pth in uttrs_from_same_spk:
-		# print(pth)
-		
-		x, sr = torchaudio.load(pth)
-		# print(torch.max(torch.abs(x)), torch.mean(torch.abs(x)))
-		if x.shape[0] > 1:
-			print("WARNING, converting to mono")
-			x = torch.mean(x, dim = 0, keepdim = True)
-		# print(x.shape)
-		# import sys
-		# sys.exit()
-		assert sr == 16000
-		
-		feats = get_full_features(x, sr, wavlm, device)
-		
-		# weights here decide weight apply to each wavlm layer. (e.g. if [0, 1, 0....] means we only take the second layer
-		
-		# print(feats.shape, match_weights.shape)
-		# import sys
-		# sys.exit()
-		
-		matching_pool[str(pth)] = ( feats*match_weights[:, None] ).sum(dim=0) # (seq_len, dim)
-		synth_pool[str(pth)] = ( feats*synth_weights[:, None] ).sum(dim=0) # (seq_len, dim)
-		
-		assert len(matching_pool[str(pth)]) == len(synth_pool[str(pth)])
+	start_step_idx = 0
+	end_step_idx = 0
+	pt_1 = 50.346
+	pt_2 = 52.77
 	
-		assert len(x.squeeze()) >= DOWNSAMPLE_FACTOR*len(matching_pool[str(pth)])
-		audio_synth_pool[str(pth)] = x.squeeze()[:DOWNSAMPLE_FACTOR*len(matching_pool[str(pth)])].reshape(len(matching_pool[str(pth)]), DOWNSAMPLE_FACTOR)
-		
-		
-		# [audio_len] -> [seq_len, dim]
-		
-		# audio_synth_pool[str(pth)] =
-		spec = STFT_OP(x.squeeze()).T[:, :-1]
-		assert spec.shape[0] >= synth_pool[str(pth)].shape[0]
-		spec = spec[:synth_pool[str(pth)].shape[0]]
-		
-		print(spec.shape, synth_pool[str(pth)].shape)
-		spec_synth_pool[str(pth)] = spec.to(synth_pool[str(pth)].device)
-		# import sys
-		# sys.exit()
-		
-		f0_path = os.path.join(f0_dir_parent, f"f0_cache_{str(sr)}_{DOWNSAMPLE_FACTOR}", os.path.relpath(pth, f0_dir_parent).replace(os.path.splitext(pth)[-1], ".npy"))
+	ad_1 = 1.22
+	ad_2 = 1.56
 	
-		if not os.path.isfile(f0_path):
-			print(f"WARNING: {f0_path} not exists, generating...")
-			f0_pool[str(pth)] = get_f0(x, sr)
-			
-			Path(f0_path).parent.mkdir(parents=True, exist_ok=True)
-			np.save(f0_path, f0_pool[str(pth)])
-		else:
-			f0_pool[str(pth)] = torch.tensor(np.load(f0_path, allow_pickle = True))
-		
-		
-		assert abs(len(f0_pool[str(pth)]) - len(synth_pool[str(pth)])) <= 1 and len(f0_pool[str(pth)]) >= len(synth_pool[str(pth)])
-		f0_pool[str(pth)] = f0_pool[str(pth)][:len(synth_pool[str(pth)])]
-		
-		
-		
-		
-		matching_harmonics = (f0_pool[str(pth)][:, None].to(spec_synth_pool[str(pth)].device))*(torch.arange(1, 50, device = spec_synth_pool[str(pth)].device)[None, :])
-		assert len(matching_harmonics.shape) == 2 and 16000/(2*spec_synth_pool[str(pth)].shape[-1]) == 40, [len(matching_harmonics.shape), len(spec_synth_pool[str(pth)].shape), 16000/(2*spec_synth_pool[str(pth)].shape[-1])]
-		
-		
-		interpolated_spec = F.interpolate(spec_synth_pool[str(pth)][None, :], scale_factor = 8, mode='linear').squeeze(0)
-		# interpolated_spec = spec_synth_pool[str(pth)]
-		matching_harmonics_indices = torch.round(torch.clamp((matching_harmonics*2*interpolated_spec.shape[-1]/16000), max = interpolated_spec.shape[-1])).to(int)
-
-		harmonics_synth_temp = torch.gather(F.pad(interpolated_spec, (0, 1)), dim = -1, index = matching_harmonics_indices)
-		
-		harmonics_synth_temp[:, 1:][f0_pool[str(pth)] == 0] = 0
-		harmonics_synth_temp[:, 0][f0_pool[str(pth)] == 0] = torch.max(spec_synth_pool[str(pth)], dim = 1)[0][f0_pool[str(pth)] == 0]
-		
-		harmonics_amp_synth_pool[str(pth)] = 0.0108*harmonics_synth_temp
-	
-
-		
-		accumulated_duration_so_far += len(spec_synth_pool[str(pth)])*DOWNSAMPLE_FACTOR/sr
-		if duration_limit is not None and accumulated_duration_so_far >= duration_limit:
-			print(f"Duration Limit, cut at {accumulated_duration_so_far}/{duration_limit}")
-			
-			# import sys
-			# sys.exit()
-			
+	for time_step_idx in range(len(y_1)):
+		if time_step_idx/sr > pt_1 and start_step_idx == 0:
+		# if time_step_idx/sr > 34 and start_step_idx == 0:
+			start_step_idx = time_step_idx
+		elif time_step_idx/sr > pt_2 and end_step_idx == 0:
+		# elif time_step_idx/sr > 35 and end_step_idx == 0:
+			end_step_idx = time_step_idx
 			break
 
-			
-	return matching_pool, synth_pool, audio_synth_pool, spec_synth_pool, f0_pool, harmonics_amp_synth_pool
+	# pt_1 = 34
+	# pt_2 = 35
+	# 
+	# 
+	# print(target_feature_indices[int(pt_1*50):int(pt_2*50)])
+	target_feature_chunks = target_feature_indices[int((pt_1 + ad_1)*50):int((pt_1 + ad_2)*50)]
+	# print(int((pt_1 + ad_1)*50), int((pt_1 + ad_2)*50), (ad_2 - ad_1)*50)
+	# import sys
+	# sys.exit()
+	import numpy as np
+	print(target_feature_chunks.shape, (pt_1 + ad_1 + np.arange(len(target_feature_chunks))/50).shape)
+	# import sys
+	# sys.exit()
+	
+	
+	
+	
+	# plot_matrix(target_feature_indices[int(pt_1*50):int(pt_2*50)].T.cpu().numpy(), col_names = pt_1 + np.arange(len(target_feature_indices[int(pt_1*50):int(pt_2*50)]))/50)
+	
+	# import sys
+	# sys.exit()
 
 
-def path2pools(path: Path, wavlm: nn.Module(), match_weights: Tensor, synth_weights: Tensor, device):
-	"""Given a waveform `path`, compute the matching pool"""
+	# time_slice = slice(start_step_idx, end_step_idx)
+	wav_slice = slice(start_step_idx, end_step_idx)
+	import matplotlib.pyplot as plt
+	import numpy as np
+	time = np.linspace(0, len(y_1) / sr, num=len(y_1))
+	# plot the first 1024 samples
+	# plt.plot(y_1[0, 0:1024])
+	# T_1[time_slice], 
+	fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 5))
+	
+	
+	from plotly.subplots import make_subplots
+	fig = make_subplots(rows=2, cols=1)
+	_ = plot_multi_sequences(time[wav_slice], [y_1[wav_slice]], ["w/o CAT"], fig = fig)
+	_ = plot_matrix(target_feature_chunks.T.cpu().numpy(), col_names = pt_1 + ad_1 + np.arange(len(target_feature_chunks))/50, fig = fig)
+	
+	# fig['layout']['xaxis']['title']='Time (s)'
+	fig['layout']['xaxis2']['title']='Time (s)'
+	fig['layout']['yaxis2']['autorange'] = "reversed"
+	print(fig['layout']["height"])
+	fig.update_layout(autosize=True, height=450)
 
-	uttrs_from_same_spk = sorted(list(path.parent.rglob('**/*.flac')))
-	uttrs_from_same_spk.remove(path)
-	matching_pool = []
-	synth_pool = []
-	for pth in uttrs_from_same_spk:
-		if pth in feature_cache and pth in synthesis_cache:
-			matching_feats = feature_cache[pth].float() # (seq_len, dim)
-			synth_feats = synthesis_cache[pth].float() # (seq_len, dim)
-		else:
-			feats = get_full_features(pth, wavlm, device)
-			matching_feats = ( feats*match_weights[:, None] ).sum(dim=0) # (seq_len, dim)
-			synth_feats = ( feats*synth_weights[:, None] ).sum(dim=0) # (seq_len, dim)
-			feature_cache[pth] = matching_feats.half().cpu()
-			synthesis_cache[pth] = synth_feats.half().cpu()
-
-		matching_pool.append(matching_feats.cpu())
-		synth_pool.append(synth_feats.cpu())
-	matching_pool = torch.concat(matching_pool, dim=0)
-	synth_pool = torch.concat(synth_pool, dim=0)
-	return matching_pool, synth_pool # (N, dim)
+	
+	fig.write_image(f"/home/ken/Downloads/temp_{post_opt}.pdf")
+	# another write to remove the "Loading Mathtype"
+	import time
+	time.sleep(1.4)
+	fig.write_image(f"/home/ken/Downloads/temp_{post_opt}.pdf")
+	# fig.show()
+	
+	import sys
+	sys.exit()
 
 
-# , pth = None
+
+# --------util functions for obtaining features for knn/additive synthesis----------
+
 def get_f0(x, sr):
 	# print("Started", pth)
 	import pyworld as pw
@@ -225,9 +125,7 @@ def get_f0(x, sr):
 	f0 = torch.from_numpy(f0).float()
 	f0[f0<80] *= 0	
 
-	# print("Ended", pth)
 	return f0
-	# , f0[:features.shape[1]]
 
 
 def upsample(signal, factor, mode = "nearest"):
@@ -259,13 +157,12 @@ def remove_above_nyquist(amplitudes, pitch, sampling_rate):
 
 
 
-
 # expect
 # f0 (batch, seq_len ,1)
 # amp (batch, seq_len, harmonics)
 # output (batch, wav_len, 1)
 # , device = "cpu"
-def get_bulk_dsp_choral(f0, amp, sample_rate = 16000, hop_size = 320, dsp_type = "sin"):
+def get_bulk_dsp_choral(f0, amp, sample_rate = 16000, hop_size = 320):
 
 	assert f0.device == amp.device, [f0.device, amp.device]
 	f0 = upsample(f0.transpose(1, 2), hop_size).transpose(1, 2)
@@ -369,21 +266,9 @@ def get_bulk_dsp(f0, amp, sample_rate = 16000, hop_size = 320, dsp_type = "sin",
 	# return shape [B, T]
 	return ddsp_signal
 
-
-
-
 @torch.inference_mode()
-def get_full_features(x, sr, wavlm, device):
+def get_full_wavlm_features(x, sr, wavlm, device):
 
-	
-	# print(x.shape)
-	# import sys
-	# sys.exit()
-
-	
-	# print(x.shape)
-	# import sys
-	# sys.exit()
 	features_list = []
 	
 	start = 0
@@ -408,102 +293,133 @@ def get_full_features(x, sr, wavlm, device):
 		start = start+30*sr
 
 	features = torch.cat(features_list, dim=1)
-	# torch.Size([25, 1818, 1024]) -> (wavlm_layer, time_steps, feature_dim)
-	# print(features.shape, f0.shape)
-	# import sys
-	# sys.exit()
 	return features
 
-'''
-def fast_cosine_dist(source_feats, matching_pool):
-	source_norms = torch.norm(source_feats, p=2, dim=-1)
-	matching_norms = torch.norm(matching_pool, p=2, dim=-1)
-	dotprod = -torch.cdist(source_feats[None], matching_pool[None], p=2)[0]**2 + source_norms[:, None]**2 + matching_norms[None]**2
-	dotprod /= 2
+# path -> spk_folder, dataset_root_dir -> folder that contains all spk_folders
+# duration_limit in second
 
+def get_complete_spk_pool(path: Path, wavlm: nn.Module, match_weights: Tensor, synth_weights: Tensor, device = "cuda", duration_limit = None, vad_trigger_level = 0):
+	"""load and wavlm process all flac for any given spk"""
+
+	matching_pool = dict()
+	synth_pool = dict()
+	spec_synth_pool = dict()
+	# audio pieces (for quick experiments)
+	audio_synth_pool = dict()
+	f0_pool = dict()
+	harmonics_amp_synth_pool = dict()
+
+	# either a single audio file or a folder of audio files
+	audio_extensions = {".flac", ".wav", ".mp3"}
+	if os.path.isfile(path) and os.path.splitext(path)[-1] in audio_extensions:
+		print("[INFO] Processing a Single File")
+		uttrs_from_same_spk = [path]
+	else:
+		# Collect all audio files whose extension matches any in audio_extensions
+		uttrs_from_same_spk = sorted([p for p in path.rglob('**/*') if p.suffix.lower() in audio_extensions])
+
+
+
+	assert len(uttrs_from_same_spk) != 0, [f"directory not containing any audio {path}"]
 	
-	dists = 1 - ( dotprod / (source_norms[:, None] * matching_norms[None]) )
-	if torch.sum(torch.isnan(dists)) > 0:
-		print("containing nan")
-		import sys
-		sys.exit()
-	return dists
-'''
 
-@torch.inference_mode()
-def extract(df: pd.DataFrame, wavlm: nn.Module, device, ls_path: Path, out_path: Path, synth_weights: Tensor, match_weights: Tensor):
+	STFT_OP = torchaudio.transforms.Spectrogram(n_fft = 400, hop_length = DOWNSAMPLE_FACTOR, center = True, power = 1)
 	
-	pb = progress_bar(df.iterrows(), total=len(df))
+	
+	# ensure rglob above sorted to avoid result variance
+	accumulated_duration_so_far = 0
+	for pth in uttrs_from_same_spk:
+		x, sr = torchaudio.load(pth)
+		if x.shape[0] > 1:
+			print(f"[INFO] converting to mono")
+			x = torch.mean(x, dim = 0, keepdim = True)
 
-	for i, row in pb:
-		rel_path = Path(row.path).relative_to(ls_path)
-		targ_path = (out_path/rel_path).with_suffix('.pt')
-		if args.resume:
-			if targ_path.is_file(): continue
-		# if targ_path.is_file(): continue
-		os.makedirs(targ_path.parent, exist_ok=True)
 
-		if Path(row.path) in feature_cache:
-			source_feats = feature_cache[Path(row.path)].float()
-		else:
-			source_feats = get_full_features(row.path, wavlm, device)
-			source_feats = ( source_feats*match_weights[:, None] ).sum(dim=0) # (seq_len, dim)
-
-		# get the pool of utterance (features) from all flac of the same speaker
-		matching_pool, synth_pool = path2pools(row.path, wavlm, match_weights, synth_weights, device)
-
-		if not args.prematch:
-			out_feats = source_feats.cpu()
-		else:
-			
-			dists = fast_cosine_dist(source_feats.cpu(), matching_pool.cpu()).cpu()
-			best = dists.topk(k=args.topk, dim=-1, largest=False) # (src_len, 4)
-			
-			
-			# test
-			best = dists.topk(k=args.topk, dim=-1, largest=False)
-			out_feats = synth_pool[best.indices].mean(dim=1)
-			old_target_feature_path = str(targ_path).replace("cached", "cached_old")
-			old_out_feats = torch.load(old_target_feature_path).to(out_feats)
-			print(old_target_feature_path, source_feats.shape, matching_pool.shape, out_feats.shape)
-			
-			print(torch.max(torch.abs(old_out_feats - out_feats.half())))
-			
-			if "5652-19215-0000.pt" in str(targ_path):
-				import sys
-				sys.exit()
-			else:
-				continue
-				
-			
-			
-
-			# save synth_pool and best indices so that k becomes flexible during experiment time.
-			out_feats = source_feats.cpu()
-			# out_feats = synth_pool[best.indices].mean(dim=1) # (N, dim)
-
-		# save matched sequence
-		if i < 3: print("Feature has shape: ", out_feats.shape, flush=True)
-		# 3. save
-		torch.save(out_feats.cpu().half(), str(targ_path))
-
-		
-		if hasattr(pb, 'child'):
-			pb.child.comment = str(rel_path)
-			pb.child.wait_for = min(pb.child.wait_for, 10)
-			pb.main_bar.comment = str(rel_path)
-		else:
-			pb.wait_for = min(pb.wait_for, 10)
-		pb.comment = "/".join(str(rel_path).split("/")[1:])
+		if sr != 16000:
+			print(f"[INFO] converting to 16000")
+			x = torchaudio.functional.resample(x, sr, 16000)
+			sr = 16000
 		
 
-		if i % 1000 == 0: 
-			print(f"Done {i:,d}/{len(df):,d}", flush=True)
-			feature_cache.clear()
-			synthesis_cache.clear()
-			gc.collect()
-			time.sleep(4)
 
+
+		# TODO: if file exists, load from it, otherwise generate it (similarly for amp), check if the original logic is this though.		
+		feats = get_full_wavlm_features(x, sr, wavlm, device)
+
+		matching_pool[str(pth)] = ( feats*match_weights[:, None] ).sum(dim=0) # (seq_len, dim)
+		synth_pool[str(pth)] = ( feats*synth_weights[:, None] ).sum(dim=0) # (seq_len, dim)
+		
+		assert len(matching_pool[str(pth)]) == len(synth_pool[str(pth)])
+	
+		assert len(x.squeeze()) >= DOWNSAMPLE_FACTOR*len(matching_pool[str(pth)])
+		audio_synth_pool[str(pth)] = x.squeeze()[:DOWNSAMPLE_FACTOR*len(matching_pool[str(pth)])].reshape(len(matching_pool[str(pth)]), DOWNSAMPLE_FACTOR)
+		
+		
+		# [audio_len] -> [seq_len, dim]
+		
+		# audio_synth_pool[str(pth)] =
+		spec = STFT_OP(x.squeeze()).T[:, :-1]
+		assert spec.shape[0] >= synth_pool[str(pth)].shape[0]
+		spec = spec[:synth_pool[str(pth)].shape[0]]
+		
+		print(spec.shape, synth_pool[str(pth)].shape)
+		spec_synth_pool[str(pth)] = spec.to(synth_pool[str(pth)].device)
+		# import sys
+		# sys.exit()
+		
+
+		
+		# Previously cached under f0_dir_parent/f0_cache_{sr}_{DOWNSAMPLE_FACTOR}/...; now store next to source audio
+		f0_path = os.path.splitext(str(pth))[0] + "_f0.npy"
+		# print(f0_path)
+	
+		if not os.path.isfile(f0_path):
+			print(f"WARNING: {f0_path} not exists, generating...")
+			f0_pool[str(pth)] = get_f0(x, sr)
+			np.save(f0_path, f0_pool[str(pth)])
+		else:
+			print("INFO: using existing f0 file", f0_path)
+			f0_pool[str(pth)] = torch.tensor(np.load(f0_path, allow_pickle = True))
+		
+		
+		assert abs(len(f0_pool[str(pth)]) - len(synth_pool[str(pth)])) <= 1 and len(f0_pool[str(pth)]) >= len(synth_pool[str(pth)])
+		f0_pool[str(pth)] = f0_pool[str(pth)][:len(synth_pool[str(pth)])]
+		
+		
+		
+		
+		matching_harmonics = (f0_pool[str(pth)][:, None].to(spec_synth_pool[str(pth)].device))*(torch.arange(1, 50, device = spec_synth_pool[str(pth)].device)[None, :])
+		assert len(matching_harmonics.shape) == 2 and 16000/(2*spec_synth_pool[str(pth)].shape[-1]) == 40, [len(matching_harmonics.shape), len(spec_synth_pool[str(pth)].shape), 16000/(2*spec_synth_pool[str(pth)].shape[-1])]
+		
+		
+		interpolated_spec = F.interpolate(spec_synth_pool[str(pth)][None, :], scale_factor = 8, mode='linear').squeeze(0)
+		# interpolated_spec = spec_synth_pool[str(pth)]
+		matching_harmonics_indices = torch.round(torch.clamp((matching_harmonics*2*interpolated_spec.shape[-1]/16000), max = interpolated_spec.shape[-1])).to(int)
+
+		harmonics_synth_temp = torch.gather(F.pad(interpolated_spec, (0, 1)), dim = -1, index = matching_harmonics_indices)
+		
+		harmonics_synth_temp[:, 1:][f0_pool[str(pth)] == 0] = 0
+		harmonics_synth_temp[:, 0][f0_pool[str(pth)] == 0] = torch.max(spec_synth_pool[str(pth)], dim = 1)[0][f0_pool[str(pth)] == 0]
+		
+		harmonics_amp_synth_pool[str(pth)] = 0.0108*harmonics_synth_temp
+	
+
+		
+		accumulated_duration_so_far += len(spec_synth_pool[str(pth)])*DOWNSAMPLE_FACTOR/sr
+		if duration_limit is not None and accumulated_duration_so_far >= duration_limit:
+			print(f"Duration Limit, cut at {accumulated_duration_so_far}/{duration_limit}")
+			break
+
+			
+	return matching_pool, synth_pool, audio_synth_pool, spec_synth_pool, f0_pool, harmonics_amp_synth_pool
+
+
+
+
+
+
+
+# --------util functions for concatenation smoothness weight computation----------
 
 
 
@@ -529,57 +445,6 @@ def process_weight(weight_para, process_type):
 	else:
 		raise NotImplementedError
 
-# ys list of y sequences
-def plot_multi_sequences(x, ys, y_names, title = "", template="plotly", width = None, height = None, x_axis = None, y_axis = None, initial_visibility = True, fig = None, fig_row = 1, fig_col = 1):
-	'''
-	
-	import pandas as pd
-	data_df = pd.DataFrame(ys, index=y_names, columns=x).T
-	
-	import plotly.express as px
-	# print(data_df)
-	fig = px.line(data_df)
-
-	'''
-	
-	import plotly.graph_objects as go
-
-	# https://community.plotly.com/t/hovertemplate-does-not-show-name-property/36139/2
-	
-	show_on_screen = (fig is None)
-	if show_on_screen:
-		fig = go.Figure(data = [go.Scatter(x = x, y = ys[i], name = y_names[i], meta = [y_names[i]], hovertemplate = '%{meta}<br>x=%{x}<br>y=%{y}<extra></extra>') for i in range(len(ys))])
-	else:
-		fig.append_trace(go.Scatter(x = x, y = ys[0], name = y_names[0], meta = [y_names[0]], hovertemplate = '%{meta}<br>x=%{x}<br>y=%{y}<extra></extra>'), row=fig_row, col=fig_col)
-	
-	
-	fig.update_layout(
-		title=title,
-		font=dict(size=25),
-		hoverlabel=dict(font_size=25),
-		margin={"l":40, "r":40, "t":40, "b":40},
-		autosize=True,
-		template=template,
-		width=width,
-		height=height,
-		xaxis_title=x_axis, 
-		yaxis_title=y_axis
-	)
-	
-	
-	if not initial_visibility:
-		fig.update_traces(visible = 'legendonly')
-		
-		
-	if show_on_screen:
-		fig.show(config = {'showTips':False})
-	else:
-		return fig
-	
-
-
-
-		
 # (batch_size, feature_dim)
 def phase_mae(X_1, X_2):	
 	# cos_val = F.cosine_similarity(X_1, X_2)
@@ -706,8 +571,6 @@ def compute_weight(target_feature_indices, synth_set, process_type = "sum_to_1_g
 	# return best_weight_para
 	
 
-
-
 def compute_wavlm_weight(target_feature_indices, synth_set, process_type = "sum_to_1_geq"):
 	conv_range = 1
 	
@@ -815,155 +678,6 @@ def compute_wavlm_weight(target_feature_indices, synth_set, process_type = "sum_
 	
 	return process_weight(best_weight_para, process_type)
 	# return best_weight_para
-
-
-
-def compute_extended_weight(target_feature_indices, synth_set, process_type = "sum_to_1_geq", factors = [1]):
-	conv_range = 1
-	
-	# print(target_feature_indices.shape, synth_set.shape)
-	# import sys
-	# sys.exit()
-	
-	
-	shape_0, shape_1 = target_feature_indices.shape
-	target_feature_indices_surrounding = dict()
-	out_feats_surrounding = dict()
-	
-	for i in range(-conv_range, conv_range + 1):
-		target_feature_indices_surrounding[i] = target_feature_indices + i
-		
-		# avoid dropping out of [0, len(synth_set))
-		target_feature_indices_surrounding[i][target_feature_indices_surrounding[i] < 0] = 0
-		target_feature_indices_surrounding[i][target_feature_indices_surrounding[i] >= len(synth_set)] = len(synth_set) - 1
-		
-				
-		out_feats_surrounding[i] = synth_set[target_feature_indices_surrounding[i].reshape(-1)].reshape(shape_0, shape_1, synth_set.shape[-1])
-
-		out_feats_surrounding[i] = torch.cat([factor*out_feats_surrounding[i] for factor in factors], dim = 1)
-
-	# weight_para = torch.zeros(target_feature_indices.shape, dtype=torch.float32, requires_grad=True, device = target_feature_indices.device)
-		
-	scaling_factors = torch.zeros((target_feature_indices.shape[0], target_feature_indices.shape[1]*len(factors)), dtype=torch.float32, requires_grad=True, device = target_feature_indices.device)
-	# scaling_max = 1.1
-	# scaling_min = 1/1.1
-	scaling_max = 1
-	scaling_min = 1
-		
-	weight_para = torch.zeros((target_feature_indices.shape[0], target_feature_indices.shape[1]*len(factors)), dtype=torch.float32, requires_grad=True, device = target_feature_indices.device)
-	
-	import torch.optim as optim
-	optimizer = optim.Adam(
-		[weight_para, scaling_factors], lr = 1e-1, 
-		betas = (0.9, 0.999), eps = 1e-08, weight_decay = 0., amsgrad = True
-	)
-
-	# process_type = "geq"
-	min_loss = 20000
-	converge_min_loss = 20000
-	import copy
-	best_weight_para = copy.deepcopy(weight_para.detach())
-	is_loss_decreasing = [True for xxx in range(1000)]
-	
-	expected_ones = dict()
-	
-	for t in range(100000):
-		
-		
-		
-		similarities = 0
-		for i in range(-conv_range, conv_range+1):
-			expected_ones[i] = torch.sum(out_feats_surrounding[i]*process_weight(weight_para, process_type)[..., None]*(torch.tanh(scaling_factors)*(scaling_max - scaling_min)/2 + (scaling_max + scaling_min)/2)[..., None], dim = 1)
-		
-		# separate as we need expected_ones[0]
-		for i in range(-conv_range, conv_range+1):
-			# print(i, expected_ones[i].shape, expected_ones[0].shape)
-			# print(expected_ones[i][-i:].shape, expected_ones[0][:i].shape)
-			if i < 0:
-				# similarity_item = (1 - F.cosine_similarity(expected_ones[i][-i:], expected_ones[0][:i]))
-				similarity_item = phase_mae(expected_ones[i][-i:], expected_ones[0][:i])
-				
-				assert len(similarity_item) == len(target_feature_indices) - abs(i)
-				similarities += (1/abs(i))*torch.mean(similarity_item)
-				
-			elif i > 0:
-				# similarity_item = (1 - F.cosine_similarity(expected_ones[0][i:], expected_ones[i][:-i]))
-				similarity_item = phase_mae(expected_ones[0][i:], expected_ones[i][:-i])
-
-				assert len(similarity_item) == len(target_feature_indices) - abs(i)
-				similarities += (1/abs(i))*torch.mean(similarity_item)
-
-
-		loss = similarities
-		if t == 0:
-			initial_loss = loss.item()
-			print(process_weight(weight_para, process_type)[0])
-			
-		if t % 100 == 1:
-			if abs(min_loss - converge_min_loss) < 1e-5:
-			# if abs(min_loss - converge_min_loss) < 1e-6:
-				break
-			
-			converge_min_loss = min_loss
-			
-			
-		# , prediction, loss
-		if loss < min_loss:
-			# if torch.abs(loss - min_loss) > 0.01:
-			min_loss = loss.item()
-			best_weight_para = copy.deepcopy(weight_para.detach())
-			best_scaling_factors = copy.deepcopy(scaling_factors.detach())
-			is_loss_decreasing = is_loss_decreasing[1:] + [True]
-		else:
-			is_loss_decreasing = is_loss_decreasing[1:] + [False]
-		
-		# break when consecutive 1000 epoch gives no improvement
-		if not any(is_loss_decreasing):
-			break
-		
-		# print(weight_para)
-		print(t, round(loss.item(), 6), round(initial_loss, 6), end = "\r")
-	
-		optimizer.zero_grad()
-		loss.backward()
-		optimizer.step()
-	
-	# to preserve the last loss print
-	print()
-	print(process_weight(best_weight_para, process_type)[0])
-	
-	# sum_to_1_geq
-	assert torch.all(process_weight(best_weight_para, process_type) <= 1) and torch.all(process_weight(best_weight_para, process_type) >= 0)
-	
-	return process_weight(best_weight_para, process_type)*(torch.tanh(best_scaling_factors)*(scaling_max - scaling_min)/2 + (scaling_max + scaling_min)/2)
-	# return best_weight_para
-
-
-
-
-def compute_shift(query_f0, f0_list, target_feature_indices):
-	
-	shape_0, shape_1 = target_feature_indices.shape
-	
-	target_feature_f0 = f0_list[target_feature_indices.reshape(-1).cpu()].reshape(shape_0, shape_1).to(target_feature_indices.device)
-	median_target_feature_f0 = torch.median(target_feature_f0, dim = -1).values
-	
-	assert len(query_f0) == len(median_target_feature_f0), [query_f0.shape, median_target_feature_f0.shape]
-	
-	import copy
-	query_f0 = copy.deepcopy(query_f0)
-	# inconsistency between pitch extractor and wavlm
-	query_f0[median_target_feature_f0 == 0] = 0
-
-	optimal_shift = torch.linalg.lstsq(query_f0.to(median_target_feature_f0.device)[:, None], median_target_feature_f0[:, None]).solution
-	
-	assert optimal_shift.shape[0] == 1 and optimal_shift.shape[1] == 1
-	# print(optimal_shift)
-	# import sys
-	# sys.exit()
-	
-	return optimal_shift[0][0]
-
 
 
 
@@ -1088,77 +802,153 @@ def compute_weight_with_amp(target_feature_indices, synth_set, process_type = "s
 	return process_weight(best_weight_para, process_type)
 	# return best_weight_para
 	
-	
-
-	
-	
-	
-	
-
-def play_sequence(audio_chunk, f_s = 16000):
-	import sounddevice as sd
-	sd.play(audio_chunk, f_s, blocking = True)
 
 
-def write_audio(filename, waveform, sample_rate):
+def compute_extended_weight(target_feature_indices, synth_set, process_type = "sum_to_1_geq", factors = [1]):
+	conv_range = 1
 	
-	# first convert as we may need it to become bytes later
-	import torch
-	if isinstance(waveform, torch.Tensor):
-		waveform = waveform.detach().cpu().numpy()
-
+	# print(target_feature_indices.shape, synth_set.shape)
+	# import sys
+	# sys.exit()
 	
-	import numpy as np
-	# print(waveform.shape, np.max(waveform), np.min(waveform))
-
 	
-	# convert to int32 if it is [-1, 1] float
-	if waveform.dtype == np.float32 or waveform.dtype == np.float64:
-		
-		# ensure it is in [-1, 1]
-		waveform_abs_max = np.max(np.abs(waveform))
-		if waveform_abs_max > 1:
-			waveform = waveform/waveform_abs_max
+	shape_0, shape_1 = target_feature_indices.shape
+	target_feature_indices_surrounding = dict()
+	out_feats_surrounding = dict()
 	
+	for i in range(-conv_range, conv_range + 1):
+		target_feature_indices_surrounding[i] = target_feature_indices + i
 		
+		# avoid dropping out of [0, len(synth_set))
+		target_feature_indices_surrounding[i][target_feature_indices_surrounding[i] < 0] = 0
+		target_feature_indices_surrounding[i][target_feature_indices_surrounding[i] >= len(synth_set)] = len(synth_set) - 1
 		
-		waveform = waveform * (2 ** 31 - 1)   
-		waveform = waveform.astype(np.int32)
-	else:
-		assert waveform.dtype == np.int32
-		
-		
-
-	if filename.endswith(".wav"):
-		import soundfile as sf
-		sf.write(filename, waveform.T, samplerate = sample_rate, subtype = 'PCM_32')
-		
-	else:
-		
-		
-		if waveform.ndim == 2:
-			if waveform.shape[0] in {1, 2}:
-				waveform = waveform.T
 				
-			channels = waveform.shape[1]
-		elif waveform.ndim == 1:
-			channels = 1
-		else:
-			import sys
-			sys.exit("Bad audio array shape")
+		out_feats_surrounding[i] = synth_set[target_feature_indices_surrounding[i].reshape(-1)].reshape(shape_0, shape_1, synth_set.shape[-1])
+
+		out_feats_surrounding[i] = torch.cat([factor*out_feats_surrounding[i] for factor in factors], dim = 1)
+
+	# weight_para = torch.zeros(target_feature_indices.shape, dtype=torch.float32, requires_grad=True, device = target_feature_indices.device)
 		
+	scaling_factors = torch.zeros((target_feature_indices.shape[0], target_feature_indices.shape[1]*len(factors)), dtype=torch.float32, requires_grad=True, device = target_feature_indices.device)
+	# scaling_max = 1.1
+	# scaling_min = 1/1.1
+	scaling_max = 1
+	scaling_min = 1
+		
+	weight_para = torch.zeros((target_feature_indices.shape[0], target_feature_indices.shape[1]*len(factors)), dtype=torch.float32, requires_grad=True, device = target_feature_indices.device)
+	
+	import torch.optim as optim
+	optimizer = optim.Adam(
+		[weight_para, scaling_factors], lr = 1e-1, 
+		betas = (0.9, 0.999), eps = 1e-08, weight_decay = 0., amsgrad = True
+	)
+
+	# process_type = "geq"
+	min_loss = 20000
+	converge_min_loss = 20000
+	import copy
+	best_weight_para = copy.deepcopy(weight_para.detach())
+	is_loss_decreasing = [True for xxx in range(1000)]
+	
+	expected_ones = dict()
+	
+	for t in range(100000):
+		
+		
+		
+		similarities = 0
+		for i in range(-conv_range, conv_range+1):
+			expected_ones[i] = torch.sum(out_feats_surrounding[i]*process_weight(weight_para, process_type)[..., None]*(torch.tanh(scaling_factors)*(scaling_max - scaling_min)/2 + (scaling_max + scaling_min)/2)[..., None], dim = 1)
+		
+		# separate as we need expected_ones[0]
+		for i in range(-conv_range, conv_range+1):
+			# print(i, expected_ones[i].shape, expected_ones[0].shape)
+			# print(expected_ones[i][-i:].shape, expected_ones[0][:i].shape)
+			if i < 0:
+				# similarity_item = (1 - F.cosine_similarity(expected_ones[i][-i:], expected_ones[0][:i]))
+				similarity_item = phase_mae(expected_ones[i][-i:], expected_ones[0][:i])
+				
+				assert len(similarity_item) == len(target_feature_indices) - abs(i)
+				similarities += (1/abs(i))*torch.mean(similarity_item)
+				
+			elif i > 0:
+				# similarity_item = (1 - F.cosine_similarity(expected_ones[0][i:], expected_ones[i][:-i]))
+				similarity_item = phase_mae(expected_ones[0][i:], expected_ones[i][:-i])
+
+				assert len(similarity_item) == len(target_feature_indices) - abs(i)
+				similarities += (1/abs(i))*torch.mean(similarity_item)
+
+
+		loss = similarities
+		if t == 0:
+			initial_loss = loss.item()
+			print(process_weight(weight_para, process_type)[0])
 			
+		if t % 100 == 1:
+			if abs(min_loss - converge_min_loss) < 1e-5:
+			# if abs(min_loss - converge_min_loss) < 1e-6:
+				break
+			
+			converge_min_loss = min_loss
+			
+			
+		# , prediction, loss
+		if loss < min_loss:
+			# if torch.abs(loss - min_loss) > 0.01:
+			min_loss = loss.item()
+			best_weight_para = copy.deepcopy(weight_para.detach())
+			best_scaling_factors = copy.deepcopy(scaling_factors.detach())
+			is_loss_decreasing = is_loss_decreasing[1:] + [True]
+		else:
+			is_loss_decreasing = is_loss_decreasing[1:] + [False]
 		
-		from pydub import AudioSegment
-		song = AudioSegment(waveform.tobytes(), frame_rate=sample_rate, sample_width=4, channels=channels)
+		# break when consecutive 1000 epoch gives no improvement
+		if not any(is_loss_decreasing):
+			break
 		
-		assert filename.split(".")[-1] in {"mp3", "flac"}
-		
-		song.export(filename, format=filename.split(".")[-1], bitrate="320k")
+		# print(weight_para)
+		print(t, round(loss.item(), 6), round(initial_loss, 6), end = "\r")
+	
+		optimizer.zero_grad()
+		loss.backward()
+		optimizer.step()
+	
+	# to preserve the last loss print
+	print()
+	print(process_weight(best_weight_para, process_type)[0])
+	
+	# sum_to_1_geq
+	assert torch.all(process_weight(best_weight_para, process_type) <= 1) and torch.all(process_weight(best_weight_para, process_type) >= 0)
+	
+	return process_weight(best_weight_para, process_type)*(torch.tanh(best_scaling_factors)*(scaling_max - scaling_min)/2 + (scaling_max + scaling_min)/2)
+	# return best_weight_para
 
 
-# per_spk_extract: load all spk folder, for each spk, retain wavlm features and self nearest nbr (set diagonal distance to large ones after computation)
-# per_pair_spk_extract: load all spk_folder, form pairs, for each pair, retain wavlm features for each other, and nearest nbr with respect to one another (if self-self then again set diagonal distance to large ones after computation)
+
+def compute_shift(query_f0, f0_list, target_feature_indices):
+	
+	shape_0, shape_1 = target_feature_indices.shape
+	
+	target_feature_f0 = f0_list[target_feature_indices.reshape(-1).cpu()].reshape(shape_0, shape_1).to(target_feature_indices.device)
+	median_target_feature_f0 = torch.median(target_feature_f0, dim = -1).values
+	
+	assert len(query_f0) == len(median_target_feature_f0), [query_f0.shape, median_target_feature_f0.shape]
+	
+	import copy
+	query_f0 = copy.deepcopy(query_f0)
+	# inconsistency between pitch extractor and wavlm
+	query_f0[median_target_feature_f0 == 0] = 0
+
+	optimal_shift = torch.linalg.lstsq(query_f0.to(median_target_feature_f0.device)[:, None], median_target_feature_f0[:, None]).solution
+	
+	assert optimal_shift.shape[0] == 1 and optimal_shift.shape[1] == 1
+	# print(optimal_shift)
+	# import sys
+	# sys.exit()
+	
+	return optimal_shift[0][0]
+
 
 # , amp_ratio = None
 def sort_by_f0_compatibility(expected_f0, f0_list, target_feature_indices):
@@ -1225,8 +1015,6 @@ def sort_by_f0_compatibility(expected_f0, f0_list, target_feature_indices):
 	
 	return new_target_feature_indices
 
-
-
 # along dim 1
 def interp(x: Tensor, xp: Tensor, fp: Tensor) -> Tensor:
 	"""One-dimensional linear interpolation for monotonically increasing sample
@@ -1273,214 +1061,12 @@ def interp(x: Tensor, xp: Tensor, fp: Tensor) -> Tensor:
 
 
 
-
-
-# matching_type: "wavlm_only", "spec_only", "mix"
-# src_wavs, tgt_wavs: generate pool for both, use existing pool if exists. Then for each item in src_wav, output a tuple of needed features (each of len in_wavs) and the pool themselves
-
-
-def batch_load_wavlm_related(src_wav_files, ref_wav_files, wavlm, selected_layer = 6, topk: int = 4, device = "cuda", prioritize_f0 = False, ckpt_type = "wavlm_only", cache_dir = None) -> Tensor: 
-	from pathlib import Path
-	src_dataset = set([Path(item).parent for item in src_wav_files])
-	ref_dataset = set([Path(item).parent for item in ref_wav_files])
-	
-	assert len(src_dataset) == 1 and len(ref_dataset) == 1
-	
-
-	
-	# split into src_wav_file and tgt_wav_file because the save in two types are different, we do not need synth, audio_synth, harmonics_synth in src_wav_files.
-	# also, we can just cat everything in ref together as one singer pool
-	
-	src_query_pools = dict()
-	src_spec_pools = dict()
-	src_f0_pools = dict()
-	
-	for wav_file in src_wav_files:
-	
-		if cache_dir is not None:
-			from pathlib import Path
-			Path(cache_dir).mkdir(parents = True, exist_ok = True)
-		
-			import pickle
-			cache_pickle = os.path.join(cache_dir, os.path.basename(wav_file) + "_wavlm.npy")
-			if os.path.isfile(cache_pickle):
-				with open(cache_pickle, "rb") as handle:
-					matching_pool, f0_pool = pickle.load(handle)
-					
-					print("Loaded from", cache_pickle)
-			
-			else:
-			
-				matching_pool, _, _, _, f0_pool, _  = get_complete_spk_pool(wav_file, wavlm, match_weights, synth_weights, dataset_root_dir = dataset_root_dir, device = device)
-			
-				with open(cache_pickle, "wb") as handle:
-					pickle.dump((matching_pool, f0_pool), handle)
-			
-		else:
-			
-			matching_pool, _, _, _, f0_pool, _  = get_complete_spk_pool(wav_file, wavlm, match_weights, synth_weights, dataset_root_dir = dataset_root_dir, device = device)	
-		
-		
-		src_matching_pools[wav_file] = matching_pool
-		src_f0_pools[wav_file] = f0_pool
-
-
-
-
-	tgt_matching_pools = []
-	tgt_f0_pools = []
-	
-	tgt_synth_pools = []
-	tgt_audio_synth_pools = []
-	tgt_spec_synth_pools = []
-	tgt_harmonics_synth_pools = []
-
-
-	for wav_file in tgt_wav_files:
-	
-		if cache_dir is not None:
-			from pathlib import Path
-			Path(cache_dir).mkdir(parents = True, exist_ok = True)
-		
-			import pickle
-			cache_pickle = os.path.join(cache_dir, os.path.basename(wav_file) + "_wavlm.npy")
-			if os.path.isfile(cache_pickle):
-				with open(cache_pickle, "rb") as handle:
-					matching_pool, synth_pool, audio_synth_pool, spec_synth_pool, f0_pool, harmonics_synth_pool = pickle.load(handle)
-					
-					print("Loaded from", cache_pickle)
-			
-			else:
-			
-				matching_pool, synth_pool, audio_synth_pool, spec_synth_pool, f0_pool, harmonics_synth_pool  = get_complete_spk_pool(wav_file, wavlm, match_weights, synth_weights, dataset_root_dir = dataset_root_dir, device = device)
-			
-				with open(cache_pickle, "wb") as handle:
-					pickle.dump((matching_pool, synth_pool, audio_synth_pool, spec_synth_pool, f0_pool, harmonics_synth_pool), handle)
-			
-		else:
-			
-			matching_pool, synth_pool, audio_synth_pool, spec_synth_pool, f0_pool, harmonics_synth_pool  = get_complete_spk_pool(wav_file, wavlm, match_weights, synth_weights, dataset_root_dir = dataset_root_dir, device = device)	
-		
-		
-		tgt_matching_pools.append(matching_pool)
-		tgt_f0_pools.append(f0_pool)
-	
-		tgt_synth_pools.append(synth_pool)
-		tgt_audio_synth_pools.append(audio_synth_pool)
-		tgt_spec_synth_pools.append(spec_synth_pool)
-		tgt_harmonics_synth_pools.append(harmonics_synth_pool)
-
-	matching_list = torch.concat(tgt_matching_pools, dim=0)
-	matching_f0 = torch.concat(tgt_f0_pools, dim=0)
-	
-	synth_list = torch.concat(tgt_synth_pools, dim=0)
-	audio_synth_list = torch.concat(tgt_audio_synth_pools, dim=0)
-	spec_synth_list = torch.concat(tgt_spec_synth_pools, dim=0)
-	harmonics_synth_list = torch.concat(tgt_harmonics_synth_pools, dim=0)
-	
-
-
-import sys
-sys.path.append("/home/ken/open")
-from lib_ongaku_test import fast_cosine_dist, knn_cosine_similarity
-	
-
-
-def temp_plot(post_opt, target_feature_indices, synth_feats):
-	
-	
-	
-	folder = "/home/ken/Downloads/temp_Choral_not_used/"
-	if "no_post_opt" in post_opt:
-		src_wav_file = folder + "ctd_1_b_ans_resampled_16000_to_ctd_1_s_ans_resampled_16000_knn_mix_no_post_opt.wav"
-	else:
-		src_wav_file = folder + "ctd_1_b_ans_resampled_16000_to_ctd_1_s_ans_resampled_16000_knn_mix_post_opt_0.3.wav"
-	
-	from lib_ongaku_test import load_audio
-	y_1, sr = load_audio(src_wav_file, sr = 16000)
-	y_1 = y_1[0]
-	print(y_1.shape)
-	
-	
-	start_step_idx = 0
-	end_step_idx = 0
-	pt_1 = 50.346
-	pt_2 = 52.77
-	
-	ad_1 = 1.22
-	ad_2 = 1.56
-	
-	for time_step_idx in range(len(y_1)):
-		if time_step_idx/sr > pt_1 and start_step_idx == 0:
-		# if time_step_idx/sr > 34 and start_step_idx == 0:
-			start_step_idx = time_step_idx
-		elif time_step_idx/sr > pt_2 and end_step_idx == 0:
-		# elif time_step_idx/sr > 35 and end_step_idx == 0:
-			end_step_idx = time_step_idx
-			break
-
-	# pt_1 = 34
-	# pt_2 = 35
-	# 
-	# 
-	# print(target_feature_indices[int(pt_1*50):int(pt_2*50)])
-	target_feature_chunks = target_feature_indices[int((pt_1 + ad_1)*50):int((pt_1 + ad_2)*50)]
-	# print(int((pt_1 + ad_1)*50), int((pt_1 + ad_2)*50), (ad_2 - ad_1)*50)
-	# import sys
-	# sys.exit()
-	import numpy as np
-	print(target_feature_chunks.shape, (pt_1 + ad_1 + np.arange(len(target_feature_chunks))/50).shape)
-	# import sys
-	# sys.exit()
-	
-	
-	
-	
-	# plot_matrix(target_feature_indices[int(pt_1*50):int(pt_2*50)].T.cpu().numpy(), col_names = pt_1 + np.arange(len(target_feature_indices[int(pt_1*50):int(pt_2*50)]))/50)
-	
-	# import sys
-	# sys.exit()
-
-
-	# time_slice = slice(start_step_idx, end_step_idx)
-	wav_slice = slice(start_step_idx, end_step_idx)
-	from scipy.io.wavfile import read
-	import matplotlib.pyplot as plt
-	import numpy as np
-	time = np.linspace(0, len(y_1) / sr, num=len(y_1))
-	# plot the first 1024 samples
-	# plt.plot(y_1[0, 0:1024])
-	# T_1[time_slice], 
-	fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 5))
-	
-	
-	from plotly.subplots import make_subplots
-	fig = make_subplots(rows=2, cols=1)
-	plot_multi_sequences(time[wav_slice], [y_1[wav_slice]], ["w/o CAT"], fig = fig)
-	plot_matrix(target_feature_chunks.T.cpu().numpy(), col_names = pt_1 + ad_1 + np.arange(len(target_feature_chunks))/50, fig = fig)
-	
-	# fig['layout']['xaxis']['title']='Time (s)'
-	fig['layout']['xaxis2']['title']='Time (s)'
-	fig['layout']['yaxis2']['autorange'] = "reversed"
-	print(fig['layout']["height"])
-	fig.update_layout(autosize=True, height=450)
-
-	
-	fig.write_image(f"/home/ken/Downloads/temp_{post_opt}.pdf")
-	# another write to remove the "Loading Mathtype"
-	import time
-	time.sleep(1.4)
-	fig.write_image(f"/home/ken/Downloads/temp_{post_opt}.pdf")
-	# fig.show()
-	
-	import sys
-	sys.exit()
-
 	
 	
 
 
 
+# --------the main training-time/inference-time process----------
 
 # assume f0 directory's parent is the dataset_root_dir
 # any src/ref, for each item in src, convert using the pool of ref
@@ -1513,14 +1099,14 @@ def match_at_inference_time(src_wav_file, ref_wav_file, wavlm, match_weights, sy
 			
 		else:
 			
-			query_pool, useless_1, useless_2, query_spec_pool, query_f0_pool, useless_3  = get_complete_spk_pool(src_wav_file, wavlm, match_weights, synth_weights, f0_dir_parent = dataset_root_dir, device = device)
+			query_pool, useless_1, useless_2, query_spec_pool, query_f0_pool, useless_3  = get_complete_spk_pool(src_wav_file, wavlm, match_weights, synth_weights,device = device)
 			
 			with open(cache_pickle, "wb") as handle:
 				pickle.dump((query_pool, useless_1, useless_2, query_spec_pool, query_f0_pool, useless_3), handle)
 			
 	else:
 		
-		query_pool, _, _, query_spec_pool, query_f0_pool, _  = get_complete_spk_pool(str(src_wav_file), wavlm, match_weights, synth_weights, f0_dir_parent = dataset_root_dir, device = device)
+		query_pool, _, _, query_spec_pool, query_f0_pool, _  = get_complete_spk_pool(src_wav_file, wavlm, match_weights, synth_weights, device = device)
 
 
 	if tgt_dataset_path is None:
@@ -1542,14 +1128,14 @@ def match_at_inference_time(src_wav_file, ref_wav_file, wavlm, match_weights, sy
 				print("Loaded from", cache_pickle)
 		else:
 			# , vad_trigger_level = 7
-			matching_pool, synth_pool, audio_synth_pool, spec_synth_pool, f0_pool, harmonics_synth_pool = get_complete_spk_pool(str(ref_wav_file), wavlm, match_weights, synth_weights, f0_dir_parent = dataset_root_dir, device = device, duration_limit = duration_limit, vad_trigger_level = 7)
+			matching_pool, synth_pool, audio_synth_pool, spec_synth_pool, f0_pool, harmonics_synth_pool = get_complete_spk_pool(ref_wav_file, wavlm, match_weights, synth_weights, device = device, duration_limit = duration_limit, vad_trigger_level = 7)
 
 			with open(cache_pickle, "wb") as handle:
 				pickle.dump((matching_pool, synth_pool, audio_synth_pool, spec_synth_pool, f0_pool, harmonics_synth_pool), handle)
 			
 	else:
 		# , vad_trigger_level = 7
-		matching_pool, synth_pool, audio_synth_pool, spec_synth_pool, f0_pool, harmonics_synth_pool = get_complete_spk_pool(str(ref_wav_file), wavlm, match_weights, synth_weights, f0_dir_parent = dataset_root_dir, device = device, duration_limit = duration_limit)
+		matching_pool, synth_pool, audio_synth_pool, spec_synth_pool, f0_pool, harmonics_synth_pool = get_complete_spk_pool(ref_wav_file, wavlm, match_weights, synth_weights, device = device, duration_limit = duration_limit)
 
 
 
@@ -1590,7 +1176,6 @@ def match_at_inference_time(src_wav_file, ref_wav_file, wavlm, match_weights, sy
 	# print("/home/ken/Downloads/knn_vc_data/test/1089/1089-134686-0005.flac" in query_pool.keys())
 	# import sys
 	# sys.exit()
-	
 	
 	for item in query_pool:
 		if required_subset is not None and os.path.basename(item).split(".")[0] + "/" + os.path.basename(ref_wav_file) not in required_subset:
@@ -1874,8 +1459,6 @@ def match_at_inference_time(src_wav_file, ref_wav_file, wavlm, match_weights, sy
 		raise NotImplementedError
 
 	
-	
-
 
 # @torch.inference_mode()
 def per_spk_extract(wavlm: nn.Module, device, ls_path: Path, out_path: Path, synth_weights: Tensor, match_weights: Tensor, save_pool_only = False):
@@ -1971,7 +1554,7 @@ def per_spk_extract(wavlm: nn.Module, device, ls_path: Path, out_path: Path, syn
 			
 			if j != i:
 				assert NotImplementedError
-				matching_pool_1, _, _, _, _ = get_complete_spk_pool(spk_folders[j], wavlm, match_weights, synth_weights, device)
+				matching_pool_1, _, _, _, _, _ = get_complete_spk_pool(spk_folders[j], wavlm, match_weights, synth_weights, device)
 			else:
 				matching_pool_1 = matching_pool
 				# f0_list_1 = f0_list
@@ -2208,9 +1791,6 @@ def main(args):
 	
 	per_spk_extract(wavlm, args.device, Path(args.librispeech_path), Path(args.out_path), SYNTH_WEIGHTINGS, MATCH_WEIGHTINGS, save_pool_only = False)
 	print("All done!", flush=True)
-
-
-
 
 
 
