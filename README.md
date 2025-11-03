@@ -39,8 +39,7 @@ python ddsp_inference.py /path/to/src_dataset_root /path/to/tgt_dataset_root \
     --ckpt_dir /path/to/ckpt_dir \
     --ckpt_type mix \
     --post_opt post_opt_0.2 \
-    --required_subset_file /path/to/split.csv \
-    --dur_limit 30
+    --required_subset_file /path/to/split.csv
 ```
 
 Notes:
@@ -62,12 +61,16 @@ Steps:
 Tip: `ckpt_type` options include `mix`, `mix_harm_no_amp_*`, `mix_no_harm_no_amp_*`, `wavlm_only`, `wavlm_only_original`. `post_opt` can be `no_post_opt` or `post_opt_0.2`.
 
 
+## Status and planned cleanup
+
+We plan to standardize the `ckpt_type` naming to reduce confusion, but it may depend on how this research further develops. The current options listed above will continue to work for now.
+
+
 Links:
 
 - Arxiv paper: [https://arxiv.org/abs/2504.05686](https://arxiv.org/abs/2504.05686)
 - Demo page with samples: [http://knnsvc.com/](http://knnsvc.com/)
 ![kNN-SVC method](./knn-svc.png)
-![kNN-SVC notebook](./knnsvc_demo.ipynb)
 
 
 **Authors**:
