@@ -2,4 +2,4 @@
 in-project = true
 
 [virtualenvs.options]
-no-pip = false
+no-pip = true
