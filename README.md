@@ -5,7 +5,7 @@ This repo provides inference for kNN-SVC. The project is managed with Poetry for
 - Prereqs: Python 3.11, Poetry
 - Install deps: `poetry install`
 - Checkpoints can be found under the Releases tab, place them in a folder and specify it as a command line argument (or modify it in the notebook)
-- Run conversions using any of the three pathways below. Feel free to report bugs/errors via Issues.
+- Run conversions using any of the three pathways below. Feel free to report bugs/confusion via Issues.
 
 All examples assume 16kHz, mono audio inputs.
 
