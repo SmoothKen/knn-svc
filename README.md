@@ -69,7 +69,7 @@ Tip: `ckpt_type` options include `mix`, `mix_harm_no_amp_*`, `mix_no_harm_no_amp
 
 ## Status and planned cleanup
 
-We plan to standardize the `ckpt_type` naming to reduce confusion, and turn the notebook into a Colab demo, but it may depend on how this research further develops. The current options listed above will continue to work for now.
+We plan to standardize the `ckpt_type` naming to reduce confusion, but it may depend on how this research further develops. The current options listed above will continue to work for now.
 
 
 **Links**:

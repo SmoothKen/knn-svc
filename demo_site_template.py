@@ -135,6 +135,8 @@ body_str += """
     	&nbsp;|&nbsp;
     	<a href="https://github.com/SmoothKen/knn-svc" target="_blank" rel="noopener">Code (GitHub)</a>
     	&nbsp;|&nbsp;
+		<a href="https://colab.research.google.com/github/SmoothKen/knn-svc/blob/master/knnsvc_demo.ipynb" target="_blank" rel="noopener">Demo (Colab)</a>
+    	&nbsp;|&nbsp;
     	<a href="https://scholar.google.com/citations?user=jcQHdRgAAAAJ" target="_blank" rel="noopener">Keren's Google Scholar</a>
 </div>
 """
