@@ -1,7 +1,7 @@
 # kNN-SVC: Robust Zero-Shot Singing Voice Conversion with Additive Synthesis and Concatenation Smoothness Optimization
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/SmoothKen/knn-svc/blob/master/knnsvc_demo.ipynb)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-**Issues in code/demo welcome // 欢迎提交 Issue // コード・デモの不具合は Issue 歓迎です // 코드/데모 Issue 환영합니다**  — [New issue](https://github.com/SmoothKen/knn-svc/issues/new/choose)
+**[Issues](https://github.com/SmoothKen/knn-svc/issues/new/choose) in code/demo welcome // 欢迎提交 [Issues](https://github.com/SmoothKen/knn-svc/issues/new/choose) // コード・デモの不具合は [Issues](https://github.com/SmoothKen/knn-svc/issues/new/choose) 歓迎です // 코드/데모 [Issues](https://github.com/SmoothKen/knn-svc/issues/new/choose) 환영합니다**
 
 
 
