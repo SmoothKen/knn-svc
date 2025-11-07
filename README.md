@@ -1,8 +1,12 @@
-# kNN-SVC: Robust Zero-Shot Singing Voice Conversion with Additive Synthesis and Concatenation Smoothness Optimization (kNN-SVC)
+# kNN-SVC: Robust Zero-Shot Singing Voice Conversion with Additive Synthesis and Concatenation Smoothness Optimization
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)]
+(https://colab.research.google.com/github/SmoothKen/knn-svc/blob/master/knnsvc_demo.ipynb)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 
 This repo provides inference for kNN-SVC. The project is managed with Poetry for reproducible, isolated runs.
 
-- Prereqs: Python 3.11, Poetry
+- Prereqs: Python 3.12, Poetry
 - Install deps: `poetry install`
 - Checkpoints can be found under the Releases tab, place them in a folder and specify it as a command line argument (or modify it in the notebook)
 - Run conversions using any of the three pathways below. Feel free to report bugs/confusion via Issues.
@@ -50,17 +54,13 @@ Notes:
 
 ## 3) Notebook demo
 
+Colab demo: [https://colab.research.google.com/github/SmoothKen/knn-svc/blob/master/knnsvc_demo.ipynb](https://colab.research.google.com/github/SmoothKen/knn-svc/blob/master/knnsvc_demo.ipynb)
+
 Open `knnsvc_demo.ipynb` for an interactive, quick demo that uses the same `ddsp_inference.py` entrypoint under the hood.
 
 Steps:
 - Ensure you have 16kHz, mono WAVs for the source (content) and target (style).
 - In the first cell, set `src_wav_path` and `ref_wav_path` and optionally tweak `ckpt_type`, `post_opt`, and `topk`.
-- Launch the notebook using Poetry so it can see the project dependencies:
-
-    ```bash
-    poetry run jupyter notebook knnsvc_demo.ipynb
-    ```
-
 - Run the next cell to perform the conversion. The result will be saved next to the source file as:
     `<src_basename>_to_<tgt_basename>_knn_<ckpt_type>_<post_opt>.wav`
 - Subsequent cells will load and play the result inside the notebook.
@@ -77,6 +77,7 @@ We plan to standardize the `ckpt_type` naming to reduce confusion, and turn the 
 
 - Arxiv paper: [https://arxiv.org/abs/2504.05686](https://arxiv.org/abs/2504.05686)
 - Demo page with samples: [http://knnsvc.com/](http://knnsvc.com/)
+
 ![kNN-SVC method](./knn-svc.png)
 
 
@@ -92,12 +93,12 @@ We plan to standardize the `ckpt_type` naming to reduce confusion, and turn the 
 
 ```bibtex
 @inproceedings{shao2025knn,
-  title={kNN-SVC: Robust Zero-Shot Singing Voice Conversion with Additive Synthesis and Concatenation Smoothness Optimization},
-  author={Shao, Keren and Chen, Ke and Baas, Matthew and Dubnov, Shlomo},
-  booktitle={ICASSP 2025-2025 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)},
-  pages={1--5},
-  year={2025},
-  organization={IEEE}
+    title={kNN-SVC: Robust Zero-Shot Singing Voice Conversion with Additive Synthesis and Concatenation Smoothness Optimization},
+    author={Shao, Keren and Chen, Ke and Baas, Matthew and Dubnov, Shlomo},
+    booktitle={ICASSP 2025-2025 IEEE International Conference on Acoustics, Speech and Signal Processing (ICASSP)},
+    pages={1--5},
+    year={2025},
+    organization={IEEE}
 }
 ```
 
