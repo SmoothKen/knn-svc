@@ -75,7 +75,7 @@ We plan to standardize the `ckpt_type` naming to reduce confusion, but it may de
 **Links**:
 
 - Arxiv paper: [https://arxiv.org/abs/2504.05686](https://arxiv.org/abs/2504.05686)
-- Demo page with samples (Temporarily down for maintenance for a few hours as of Fri Nov  7 00:12:43 PST 2025): [http://knnsvc.com/](http://knnsvc.com/)
+- Demo page with samples: [http://knnsvc.com/](http://knnsvc.com/)
 
 ![kNN-SVC method](./knn-svc.png)
 
