@@ -46,7 +46,37 @@ body_str = """
 			font-weight: bold;
 		}
         
-    </style>
+    </style>'
+
+
+
+	<script type="application/ld+json">
+	{
+	"@context": "https://schema.org",
+	"@graph": [
+		{
+			"@type": ["Organization","WebSite"],
+			"@id": "https://knnsvc.com/#org",
+			"name": "kNN-SVC",
+			"url": "https://knnsvc.com/",
+			"sameAs": ["https://github.com/SmoothKen/knn-svc"]
+		},
+		{
+			"@type": "SoftwareSourceCode",
+			"@id": "https://knnsvc.com/#code",
+			"name": "kNN-SVC",
+			"description": "Robust zero-shot singing voice conversion",
+			"programmingLanguage": "Python",
+			"codeRepository": "https://github.com/SmoothKen/knn-svc",
+			"url": "https://knnsvc.com/",
+			"keywords": ["knn-svc","singing-voice-conversion","voice-conversion","audio","machine-learning"]
+		}
+	]
+	}
+	</script>
+
+
+
 </head>
 """
 
